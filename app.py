@@ -1,11 +1,9 @@
 import streamlit as st
-from openai import OpenAI
+import google.generativeai as genai
 from PIL import Image
 from supabase import create_client, Client
 import datetime
 import time
-import base64
-import io
 
 # --- 1. ตั้งค่า DB Connection ---
 @st.cache_resource
@@ -21,18 +19,6 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "scanned_name" not in st.session_state:
     st.session_state.scanned_name = ""
-
-# --- Helper Functions ---
-def compress_and_encode_image(image, max_size=(800, 800)):
-    """ย่อขนาดรูปภาพให้พอดีสำหรับ AI วิเคราะห์"""
-    img = image.copy()
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
-    img.thumbnail(max_size)
-    
-    buffered = io.BytesIO()
-    img.save(buffered, format="JPEG", quality=85)
-    return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
@@ -108,7 +94,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **OpenRouter Multi-Vision AI**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Flash (Free API)**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -137,9 +123,9 @@ else:
                             st.rerun()
                     st.divider()
 
-    # TAB 2: สแกนวัตถุดิบด้วย Vision AI
+    # TAB 2: สแกนวัตถุดิบด้วย Gemini AI
     with tab2:
-        st.subheader("สแกนวัตถุดิบด้วย Vision AI")
+        st.subheader("สแกนวัตถุดิบด้วย Gemini AI")
         
         # ทางลัดเลือกวัตถุดิบบ่อย
         st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
@@ -161,70 +147,31 @@ else:
             image = Image.open(img_file)
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
-            if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 AI กำลังวิเคราะห์วัตถุดิบอย่างละเอียดยิบ...", expanded=True) as status:
-                    openrouter_key = st.secrets.get("OPENROUTER_API_KEY")
-                    if not openrouter_key:
-                        status.update(label="❌ ไม่พบ OPENROUTER_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม OPENROUTER_API_KEY ใน Streamlit Secrets ก่อนใช้งานครับ")
+            if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
+                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    gemini_key = st.secrets.get("GEMINI_API_KEY")
+                    if not gemini_key:
+                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        client = OpenAI(
-                            base_url="https://openrouter.ai/api/v1",
-                            api_key=openrouter_key
-                        )
-                        
-                        base64_image = compress_and_encode_image(image)
-                        
-                        # รายชื่อโมเดลฟรีสำหรับอ่านภาพบน OpenRouter
-                        vision_models = [
-                            "qwen/qwen-2-vl-72b-instruct:free",
-                            "google/gemini-2.0-flash-exp:free",
-                            "meta-llama/llama-3.2-11b-vision-instruct:free"
-                        ]
-                        
-                        prompt_text = (
-                            "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
-                            "ให้ระบุเฉพาะชื่อวัตถุดิบอย่างสั้น สรุปตรงประเด็นที่สุดเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, สเต๊กเนื้อ, ผักกาดขาว, แอปเปิ้ล "
-                            "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
-                        )
-                        
-                        success = False
-                        for model_id in vision_models:
-                            try:
-                                status.write(f"🔄 กำลังประมวลผลด้วย: `{model_id}`")
-                                response = client.chat.completions.create(
-                                    model=model_id,
-                                    messages=[
-                                        {
-                                            "role": "user",
-                                            "content": [
-                                                {"type": "text", "text": prompt_text},
-                                                {
-                                                    "type": "image_url",
-                                                    "image_url": {
-                                                        "url": f"data:image/jpeg;base64,{base64_image}"
-                                                    }
-                                                }
-                                            ]
-                                        }
-                                    ],
-                                    temperature=0.1,
-                                    max_tokens=60
-                                )
-                                
-                                result_text = response.choices[0].message.content.strip()
-                                result_text = result_text.replace('"', '').replace("'", "").replace('.', '')
-                                st.session_state.scanned_name = result_text
-                                status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
-                                success = True
-                                break
-                            except Exception as model_err:
-                                status.write(f"⚠️ โมเดล {model_id} มีปัญหา กำลังสลับไปตัวถัดไป...")
-                                continue
-                        
-                        if not success:
-                            status.update(label="❌ ไม่สามารถเชื่อมต่อ AI ฟรีได้ในขณะนี้", state="error", expanded=True)
-                            st.error("ระบบไม่สามารถประมวลผลภาพได้ กรุณาพิมพ์ชื่อวัตถุดิบลงในแบบฟอร์มด้านล่างได้เลยครับ")
+                        try:
+                            genai.configure(api_key=gemini_key)
+                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            
+                            prompt = (
+                                "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
+                                "ระบุเฉพาะชื่อวัตถุดิบอย่างสั้น สรุปตรงประเด็นที่สุดเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, สเต๊กเนื้อ, ผักกาดขาว, แอปเปิ้ล "
+                                "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
+                            )
+                            
+                            response = model.generate_content([prompt, image])
+                            result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
+                            
+                            st.session_state.scanned_name = result_text
+                            status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
+                        except Exception as e:
+                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                            st.error(f"ข้อผิดพลาด: {e}")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
