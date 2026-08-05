@@ -1,5 +1,4 @@
 streamlit
-starlette<0.39.0
-openai
+google-generativeai
 supabase
 pillow
