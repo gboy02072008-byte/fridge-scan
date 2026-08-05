@@ -37,11 +37,10 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API โดยระบุ Endpoint v1 และใช้ gemini-2.0-flash"""
+    """เรียกใช้ Gemini API โดยระบุ Endpoint v1beta และใช้ gemini-1.5-flash-8b"""
     base64_image = compress_and_encode_image(image)
     
-    # ใช้เฉพาะโมเดลมาตรฐานที่เสถียรที่สุด
-     model_name = "gemini-1.5-flash-8b"
+    model_name = "gemini-1.5-flash-8b"
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
