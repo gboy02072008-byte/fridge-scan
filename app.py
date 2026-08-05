@@ -37,11 +37,12 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """สแกนภาพด้วย Gemini 1.5 Flash ฟรี และเสถียรที่สุด"""
+    """สแกนภาพด้วย Gemini Flash เสถียรและรองรับ API v1beta"""
     base64_image = compress_and_encode_image(image)
     clean_key = api_key.strip().strip('"').strip("'")
     
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
+    # ใช้ชื่อโมเดลมาตรฐานที่รองรับ v1beta แน่นอน
+    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash"]
     headers = {"Content-Type": "application/json"}
     
     prompt = (
@@ -84,7 +85,6 @@ def analyze_image_with_gemini(api_key, image):
             last_error = f"[{model_name}] {e}"
             
     return False, last_error
-
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
