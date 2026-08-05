@@ -74,11 +74,10 @@ def analyze_image_with_gemini(api_key, image):
             return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
         else:
             error_msg = res_data.get("error", {}).get("message", "Unknown error")
-            if "quota" in error_msg.lower() or "limit" in error_msg.lower():
-                return False, "บัญชี Google นี้ติดจำกัดโควตา (Quota 0) กรุณาลองใช้ API Key จากบัญชี @gmail.com ส่วนตัวอื่น"
             return False, f"[{model_name}] {error_msg}"
     except Exception as e:
         return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
+
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
@@ -151,7 +150,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Direct REST API**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini 2.0 Flash**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -206,12 +205,12 @@ else:
             
             if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
                 with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    # เดิม: gemini_key = st.secrets.get("GEMINI_API_KEY")
-# เปลี่ยนเป็น:
-gemini_key = st.secrets.get("GEMINI_KEY_V2")
+                    # ดึง Secret ตัวใหม่ GEMINI_KEY_V2 (ถ้าไม่มีให้ลองดึงตัวเก่า)
+                    gemini_key = st.secrets.get("GEMINI_KEY_V2") or st.secrets.get("GEMINI_API_KEY")
+                    
                     if not gemini_key:
-                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+                        status.update(label="❌ ไม่พบ API Key ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม GEMINI_KEY_V2 ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
                         success, result = analyze_image_with_gemini(gemini_key, image)
                         if success:
