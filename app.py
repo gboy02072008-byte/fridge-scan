@@ -1,6 +1,6 @@
 import streamlit as st
 
-# --- 0. ตั้งค่า Page Config (ต้องอยู่บนสุด) ---
+# --- 0. ตั้งค่า Page Config ---
 st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
 
 import requests
@@ -20,7 +20,6 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# จัดเก็บ Session State
 if "user" not in st.session_state:
     st.session_state.user = None
 if "scanned_name" not in st.session_state:
@@ -83,9 +82,8 @@ def analyze_image_with_openai(api_key, image):
             return False, f"[OpenAI Error] {error_msg}"
     except Exception as e:
         return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
-            
-    return False, last_error
-# --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
+
+# --- 2. ระบบสมาชิก ---
 def login(email, password):
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -108,7 +106,7 @@ def logout():
     st.session_state.scanned_name = ""
     st.rerun()
 
-# --- 3. ฟังก์ชันจัดการตู้เย็น (Database) ---
+# --- 3. จัดการตู้เย็น ---
 def get_fridge_items(user_id):
     res = supabase.table("fridge_items").select("*").eq("user_id", user_id).order("expiry_date", desc=False).execute()
     return res.data
@@ -126,10 +124,9 @@ def add_item_to_fridge(name, category, quantity, expiry_date, user_id):
 def delete_item(item_id):
     supabase.table("fridge_items").delete().eq("id", item_id).execute()
 
-# --- 4. หน้าตาแอปพลิเคชัน (UI Flow) ---
+# --- 4. UI ---
 st.title("🍎 แอปตู้เย็น FridgeScan")
 
-# ถ้ายังไม่ได้ล็อกอิน -> แสดงหน้า Login / Register
 if st.session_state.user is None:
     auth_tab1, auth_tab2 = st.tabs(["🔑 เข้าสู่ระบบ", "📝 สมัครสมาชิก"])
     
@@ -151,19 +148,17 @@ if st.session_state.user is None:
             else:
                 st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
 
-# ถ้าล็อกอินแล้ว -> แสดงหน้าแอปตู้เย็นหลัก
 else:
     user_id = st.session_state.user.id
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini 1.5 Flash**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **OpenAI (gpt-4o-mini)**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
     tab1, tab2 = st.tabs(["📦 ตู้เย็นของฉัน", "➕ เพิ่มของเข้าตู้เย็น"])
 
-    # TAB 1: รายการอาหารในตู้เย็น
     with tab1:
         st.subheader("รายการของในตู้เย็น")
         items = get_fridge_items(user_id)
@@ -186,11 +181,9 @@ else:
                             st.rerun()
                     st.divider()
 
-    # TAB 2: สแกนวัตถุดิบด้วย AI
     with tab2:
         st.subheader("สแกนวัตถุดิบด้วย AI")
         
-        # ทางลัดเลือกวัตถุดิบบ่อย
         st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
         shortcut_cols = st.columns(4)
         if shortcut_cols[0].button("🥛 นมสด", use_container_width=True):
@@ -211,14 +204,14 @@ else:
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
             if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    gemini_key = st.secrets.get("GEMINI_API_KEY")
+                with st.status("🚀 OpenAI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    openai_key = st.secrets.get("OPENAI_API_KEY")
                     
-                    if not gemini_key:
-                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+                    if not openai_key:
+                        status.update(label="❌ ไม่พบ OPENAI_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม OPENAI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        success, result = analyze_image_with_gemini(gemini_key, image)
+                        success, result = analyze_image_with_openai(openai_key, image)
                         if success:
                             st.session_state.scanned_name = result
                             status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
