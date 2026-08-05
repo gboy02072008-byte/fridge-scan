@@ -216,7 +216,7 @@ else:
                         status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
                         st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        success, result = analyze_image_with_gemini(gemini_key, image)
+                        success, result = analyze_image_with_github(st.secrets["GITHUB_TOKEN"], image)
                         if success:
                             st.session_state.scanned_name = result
                             status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
