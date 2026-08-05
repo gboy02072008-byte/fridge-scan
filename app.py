@@ -160,7 +160,7 @@ else:
                             genai.configure(api_key=gemini_key)
                             
                             # เลือกใช้โมเดลหลักมาตรฐาน
-                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            model = genai.GenerativeModel("gemini-2.0-flash")
                             
                             prompt = (
                                 "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
