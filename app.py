@@ -175,29 +175,29 @@ else:
                             # แปลงรูปเป็น Base64
                             base64_image = compress_and_encode_image(image)
                             
-                            # เรียกใช้ Groq Llama 3.2 Vision Model
-                            response = client.chat.completions.create(
-                                model="llama-3.2-11b-vision-preview",
-                                messages=[
-                                    {
-                                        "role": "user",
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": "วิเคราะห์ภาพนี้ ระบุชื่ออาหารหรือวัตถุดิบเป็นภาษาไทยสั้นๆ เพียงชื่อเดียว เช่น นมสด, ไข่ไก่, หมูสับ, แอปเปิ้ล"
-                                            },
-                                            {
-                                                "type": "image_url",
-                                                "image_url": {
-                                                    "url": f"data:image/jpeg;base64,{base64_image}"
-                                                }
-                                            }
-                                        ]
-                                    }
-                                ],
-                                temperature=0.2,
-                                max_tokens=100
-                            )
+                            # แก้ไขจาก "llama-3.2-11b-vision-preview" เป็น "qwen/qwen3.6-27b"
+response = client.chat.completions.create(
+    model="qwen/qwen3.6-27b",
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "วิเคราะห์ภาพนี้ ระบุชื่ออาหารหรือวัตถุดิบเป็นภาษาไทยสั้นๆ เพียงชื่อเดียว เช่น นมสด, ไข่ไก่, หมูสับ, แอปเปิ้ล"
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}"
+                    }
+                }
+            ]
+        }
+    ],
+    temperature=0.2,
+    max_tokens=100
+)
                             
                             result_text = response.choices[0].message.content.strip()
                             st.session_state.scanned_name = result_text
