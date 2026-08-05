@@ -37,15 +37,11 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API โดยจัดลำดับการลองโมเดลตระกูล 3.5 และ Flash"""
+    """เรียกใช้ Gemini API โดยระบุ Endpoint v1 และใช้ gemini-2.0-flash"""
     base64_image = compress_and_encode_image(image)
     
-    # ดึงโมเดล 3.5 Flash ขึ้นเป็นลำดับแรก หากไม่ได้จะ Fallback ไปยังรุ่น Flash อื่นๆ
-    models_to_try = [
-        "gemini-3.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-    ]
+    # ใช้เฉพาะโมเดลมาตรฐานที่เสถียรที่สุด
+    model_name = "gemini-2.0-flash"
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -53,40 +49,36 @@ def analyze_image_with_gemini(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    last_error = ""
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": "image/jpeg",
-                                "data": base64_image
-                            }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64_image
                         }
-                    ]
-                }
-            ]
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        res_data = response.json()
-        
-        if response.status_code == 200:
-            try:
-                text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-            except Exception:
-                pass
-        else:
-            error_msg = res_data.get("error", {}).get("message", "Unknown error")
-            last_error = f"[{model_name}] {error_msg}"
-            
-    return False, last_error
+                    }
+                ]
+            }
+        ]
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    res_data = response.json()
+    
+    if response.status_code == 200:
+        try:
+            text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+            return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+        except Exception as e:
+            return False, f"การแกะผลลัพธ์ผิดพลาด: {e}"
+    else:
+        error_msg = res_data.get("error", {}).get("message", "Unknown error")
+        return False, f"[{model_name}] {error_msg}"
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
