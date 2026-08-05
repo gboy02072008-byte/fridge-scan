@@ -41,7 +41,7 @@ def analyze_image_with_gemini(api_key, image):
     base64_image = compress_and_encode_image(image)
     
     # ใช้เฉพาะโมเดลมาตรฐานที่เสถียรที่สุด
-    model_name = "gemini-2.0-flash"
+     model_name = "gemini-1.5-flash-8b"
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
