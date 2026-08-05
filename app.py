@@ -37,9 +37,38 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_openrouter(api_key, image):
-    """เรียกใช้ Free Vision Models บน OpenRouter โดยใช้ชื่อโมเดลอัปเดตล่าสุด"""
+    """ดึงรายชื่อโมเดลฟรีที่เปิดใช้งานอยู่บน OpenRouter แบบเรียลไทม์เพื่อสแกนภาพ"""
     base64_image = compress_and_encode_image(image)
     
+    # 1. ดึงรายชื่อโมเดลทั้งหมดที่ OpenRouter เปิดให้บริการอยู่ ณ ปัจจุบัน
+    active_free_models = []
+    try:
+        res_models = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
+        if res_models.status_code == 200:
+            all_models = res_models.json().get("data", [])
+            # กรองเฉพาะโมเดลฟรี (:free) ที่เป็นสาย Vision / Multimodal
+            for m in all_models:
+                m_id = m.get("id", "")
+                if m_id.endswith(":free"):
+                    active_free_models.append(m_id)
+    except Exception:
+        pass
+
+    # กรองเฉพาะโมเดลตระกูลสแกนภาพที่เสถียร
+    priority_keywords = ["gemini", "vl", "vision", "pixtral", "qwen"]
+    selected_models = [
+        m for m in active_free_models 
+        if any(k in m.lower() for k in priority_keywords)
+    ]
+    
+    # หากดึงรายการไม่ได้ ให้ใช้รายการสำรองมาตรฐาน
+    if not selected_models:
+        selected_models = [
+            "qwen/qwen-2.5-vl-72b-instruct:free",
+            "google/gemini-2.0-flash-lite-001:free",
+            "google/gemini-2.0-flash-001:free"
+        ]
+
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -52,15 +81,8 @@ def analyze_image_with_openrouter(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    # รายชื่อโมเดลสแกนภาพฟรีบน OpenRouter ที่อัปเดตล่าสุด
-    models_to_try = [
-        "qwen/qwen2.5-vl-72b-instruct:free",
-        "google/gemini-2.0-flash-lite-001:free",
-        "google/gemini-2.0-flash-001:free"
-    ]
-    
     last_error = ""
-    for model_name in models_to_try:
+    for model_name in selected_models:
         payload = {
             "model": model_name,
             "messages": [
