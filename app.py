@@ -37,38 +37,9 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_openrouter(api_key, image):
-    """ดึงรายชื่อโมเดลฟรีที่เปิดใช้งานอยู่บน OpenRouter แบบเรียลไทม์เพื่อสแกนภาพ"""
+    """เรียกใช้ Free Vision Models บน OpenRouter โดยเน้นเฉพาะโมเดลที่ตอบสนองไว"""
     base64_image = compress_and_encode_image(image)
     
-    # 1. ดึงรายชื่อโมเดลทั้งหมดที่ OpenRouter เปิดให้บริการอยู่ ณ ปัจจุบัน
-    active_free_models = []
-    try:
-        res_models = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
-        if res_models.status_code == 200:
-            all_models = res_models.json().get("data", [])
-            # กรองเฉพาะโมเดลฟรี (:free) ที่เป็นสาย Vision / Multimodal
-            for m in all_models:
-                m_id = m.get("id", "")
-                if m_id.endswith(":free"):
-                    active_free_models.append(m_id)
-    except Exception:
-        pass
-
-    # กรองเฉพาะโมเดลตระกูลสแกนภาพที่เสถียร
-    priority_keywords = ["gemini", "vl", "vision", "pixtral", "qwen"]
-    selected_models = [
-        m for m in active_free_models 
-        if any(k in m.lower() for k in priority_keywords)
-    ]
-    
-    # หากดึงรายการไม่ได้ ให้ใช้รายการสำรองมาตรฐาน
-    if not selected_models:
-        selected_models = [
-            "qwen/qwen-2.5-vl-72b-instruct:free",
-            "google/gemini-2.0-flash-lite-001:free",
-            "google/gemini-2.0-flash-001:free"
-        ]
-
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -81,8 +52,29 @@ def analyze_image_with_openrouter(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
+    # 1. รายชื่อโมเดลฟรีกลุ่ม Vision ที่ประมวลผลไวและเสถียรที่สุด
+    preferred_models = [
+        "google/gemini-2.0-flash-lite-001:free",
+        "qwen/qwen-2.5-vl-72b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "mistralai/pixtral-12b:free"
+    ]
+    
+    # 2. ดึงโมเดลฟรีอื่นๆ มาสำรองเพิ่มเติม (ยกเว้น nvidia ที่มักจะ Timeout)
+    try:
+        res_models = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
+        if res_models.status_code == 200:
+            all_models = res_models.json().get("data", [])
+            for m in all_models:
+                m_id = m.get("id", "")
+                if m_id.endswith(":free") and any(k in m_id.lower() for k in ["gemini", "qwen", "pixtral"]):
+                    if m_id not in preferred_models and "nvidia" not in m_id.lower():
+                        preferred_models.append(m_id)
+    except Exception:
+        pass
+
     last_error = ""
-    for model_name in selected_models:
+    for model_name in preferred_models:
         payload = {
             "model": model_name,
             "messages": [
@@ -102,7 +94,8 @@ def analyze_image_with_openrouter(api_key, image):
         }
         
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=20)
+            # จำกัดเวลาประมวลผลไว้ที่ 12 วินาที หากโมเดลไหนค้างจะข้ามไปตัวถัดไปทันที
+            response = requests.post(url, headers=headers, json=payload, timeout=12)
             res_data = response.json()
             
             if response.status_code == 200 and "choices" in res_data and len(res_data["choices"]) > 0:
@@ -112,8 +105,12 @@ def analyze_image_with_openrouter(api_key, image):
             else:
                 error_msg = res_data.get("error", {}).get("message", "Unknown error")
                 last_error = f"[{model_name}] {error_msg}"
+        except requests.exceptions.Timeout:
+            last_error = f"[{model_name}] การเชื่อมต่อหมดเวลา (Timeout)"
+            continue
         except Exception as e:
             last_error = f"[{model_name}] {e}"
+            continue
             
     return False, last_error
 
