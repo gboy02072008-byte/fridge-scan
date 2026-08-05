@@ -94,7 +94,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Flash (Free API)**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini AI**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -156,7 +156,13 @@ else:
                     else:
                         try:
                             genai.configure(api_key=gemini_key)
-                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            
+                            # รายชื่อโมเดล Gemini ที่ใช้งานได้
+                            gemini_models = [
+                                "gemini-2.0-flash",
+                                "gemini-2.5-flash",
+                                "gemini-1.5-flash-latest"
+                            ]
                             
                             prompt = (
                                 "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -164,11 +170,24 @@ else:
                                 "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
                             )
                             
-                            response = model.generate_content([prompt, image])
-                            result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
+                            success = False
+                            for model_name in gemini_models:
+                                try:
+                                    model = genai.GenerativeModel(model_name)
+                                    response = model.generate_content([prompt, image])
+                                    result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
+                                    
+                                    st.session_state.scanned_name = result_text
+                                    status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
+                                    success = True
+                                    break
+                                except Exception:
+                                    continue
                             
-                            st.session_state.scanned_name = result_text
-                            status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
+                            if not success:
+                                status.update(label="⚠️ เกิดข้อผิดพลาดในการเชื่อมต่อโมเดล Gemini", state="error", expanded=True)
+                                st.error("ไม่สามารถประมวลผลรูปภาพได้ในขณะนี้ กรุณากรอกชื่อวัตถุดิบด้วยตนเอง")
+                                
                         except Exception as e:
                             status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
                             st.error(f"ข้อผิดพลาด: {e}")
