@@ -89,7 +89,6 @@ else:
     user_id = st.session_state.user.id
     user_email = st.session_state.user.email
     
-    # แสดงแถบผู้ใช้งานด้านข้าง (Sidebar)
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
@@ -116,7 +115,7 @@ else:
                         st.success(f"ลบ {item['name']} เรียบร้อย!")
                         st.rerun()
 
-    # TAB 2: สแกนเพิ่มของเข้าตู้เย็นตัวเอง
+    # TAB 2: สแกนเพิ่มของเข้าตู้เย็นตัวเอง (พร้อมระบบดักจับ Error)
     with tab2:
         st.subheader("สแกนวัตถุดิบด้วย AI")
         img_file = st.camera_input("ถ่ายรูปวัตถุดิบ") or st.file_uploader("เลือกรูปภาพ", type=["jpg", "png", "jpeg"])
@@ -130,17 +129,24 @@ else:
                 prompt = "วิเคราะห์ภาพนี้ ระบุชื่ออาหาร/วัตถุดิบสั้นๆ ภาษาไทยเพียงชื่อเดียว เช่น นมสด, ไข่ไก่"
                 
                 with st.spinner("กำลังบันทึกลงตู้เย็นของคุณ..."):
-                    response = model.generate_content([prompt, image])
-                    food_name = response.text.strip()
-                    default_expiry = datetime.date.today() + datetime.timedelta(days=7)
-                    
-                    add_item_to_fridge(
-                        name=food_name,
-                        category="อาหาร/วัตถุดิบ",
-                        quantity=1,
-                        expiry_date=default_expiry,
-                        user_id=user_id
-                    )
-                    
-                    st.success(f"บันทึก '{food_name}' เรียบร้อยแล้ว!")
-                    st.rerun()
+                    try:
+                        response = model.generate_content([prompt, image])
+                        food_name = response.text.strip()
+                        default_expiry = datetime.date.today() + datetime.timedelta(days=7)
+                        
+                        add_item_to_fridge(
+                            name=food_name,
+                            category="อาหาร/วัตถุดิบ",
+                            quantity=1,
+                            expiry_date=default_expiry,
+                            user_id=user_id
+                        )
+                        
+                        st.success(f"บันทึก '{food_name}' เรียบร้อยแล้ว!")
+                        st.rerun()
+
+                    except Exception as e:
+                        if "ResourceExhausted" in str(e):
+                            st.error("⚠️ ติดขัดโควตาการใช้งานชั่วคราว กรุณารอประมาณ 1 นาทีแล้วกดสแกนใหม่อีกครั้งครับ")
+                        else:
+                            st.error(f"เกิดข้อผิดพลาดในการสแกน: {e}")
