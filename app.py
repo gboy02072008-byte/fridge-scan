@@ -37,10 +37,11 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API โดยระบุ Endpoint v1beta และใช้ gemini-1.5-flash-8b"""
+    """เรียกใช้ Gemini API โดยใช้โมเดลมาตรฐาน gemini-2.0-flash"""
     base64_image = compress_and_encode_image(image)
     
-    model_name = "gemini-1.5-flash-8b"
+    # ใช้โมเดลมาตรฐานของ Google AI Studio
+    model_name = "gemini-2.0-flash"
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -78,7 +79,6 @@ def analyze_image_with_gemini(api_key, image):
     else:
         error_msg = res_data.get("error", {}).get("message", "Unknown error")
         return False, f"[{model_name}] {error_msg}"
-
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
