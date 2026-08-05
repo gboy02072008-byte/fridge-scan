@@ -36,8 +36,8 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini 2.0 Flash ฟรีผ่าน OpenRouter เพื่อเลี่ยงปัญหา Quota 0 ของ Google"""
+def analyze_image_with_openrouter(api_key, image):
+    """เรียกใช้ Free Vision Models บน OpenRouter โดยวนลูปหาตัวที่พร้อมทำงาน"""
     base64_image = compress_and_encode_image(image)
     
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -52,36 +52,48 @@ def analyze_image_with_gemini(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    payload = {
-        "model": "google/gemini-2.0-flash-001:free",
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    }
-                ]
-            }
-        ]
-    }
+    # รายชื่อโมเดลฟรีที่อ่านรูปภาพได้บน OpenRouter
+    models_to_try = [
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "qwen/qwen-2-vl-72b-instruct:free",
+        "meta-llama/llama-3.2-11b-vision-instruct:free"
+    ]
     
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        res_data = response.json()
+    last_error = ""
+    for model_name in models_to_try:
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
         
-        if response.status_code == 200:
-            text = res_data["choices"][0]["message"]["content"]
-            return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-        else:
-            error_msg = res_data.get("error", {}).get("message", "Unknown error")
-            return False, f"[OpenRouter Error] {error_msg}"
-    except Exception as e:
-        return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=20)
+            res_data = response.json()
+            
+            if response.status_code == 200 and "choices" in res_data:
+                text = res_data["choices"][0]["message"]["content"]
+                return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+            else:
+                error_msg = res_data.get("error", {}).get("message", "Unknown error")
+                last_error = f"[{model_name}] {error_msg}"
+        except Exception as e:
+            last_error = f"[{model_name}] {e}"
+            
+    return False, last_error
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
@@ -155,7 +167,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Gemini 2.0 Flash (OpenRouter)**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **OpenRouter AI (Free Tier)**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -184,9 +196,9 @@ else:
                             st.rerun()
                     st.divider()
 
-    # TAB 2: สแกนวัตถุดิบด้วย Gemini AI
+    # TAB 2: สแกนวัตถุดิบด้วย AI
     with tab2:
-        st.subheader("สแกนวัตถุดิบด้วย Gemini AI")
+        st.subheader("สแกนวัตถุดิบด้วย AI")
         
         # ทางลัดเลือกวัตถุดิบบ่อย
         st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
@@ -208,9 +220,9 @@ else:
             image = Image.open(img_file)
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
-            if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    gemini_key = st.secrets.get("OPENROUTER_API_KEY")
+            if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
+                with st.status("🚀 AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    openrouter_key = st.secrets.get("OPENROUTER_API_KEY")
                     
                     if not openrouter_key:
                         status.update(label="❌ ไม่พบ OPENROUTER_API_KEY ใน Secrets", state="error", expanded=True)
