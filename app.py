@@ -37,12 +37,14 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API ผ่าน REST API โดยตรงเพื่อเลี่ยงปัญหา SDK"""
+    """เรียกใช้ Gemini API โดยจัดลำดับการลองโมเดลตระกูล 3.5 และ Flash"""
     base64_image = compress_and_encode_image(image)
     
-    # รายชื่อโมเดลที่จะทดลองเรียกตามลำดับ
+    # ดึงโมเดล 3.5 Flash ขึ้นเป็นลำดับแรก หากไม่ได้จะ Fallback ไปยังรุ่น Flash อื่นๆ
     models_to_try = [
-        "gemini-3.5-flash"
+        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
     ]
     
     prompt = (
