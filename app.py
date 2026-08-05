@@ -157,11 +157,10 @@ else:
                         try:
                             genai.configure(api_key=gemini_key)
                             
-                            # รายชื่อโมเดล Gemini ที่ใช้งานได้
                             gemini_models = [
-                                "gemini-2.0-flash",
-                                "gemini-2.5-flash",
-                                "gemini-1.5-flash-latest"
+                                "gemini-1.5-flash-latest",
+                                "gemini-1.5-flash",
+                                "gemini-2.0-flash-exp"
                             ]
                             
                             prompt = (
@@ -171,8 +170,11 @@ else:
                             )
                             
                             success = False
+                            errors_log = []
+                            
                             for model_name in gemini_models:
                                 try:
+                                    status.write(f"🔄 กำลังทดสอบโมเดล: `{model_name}`")
                                     model = genai.GenerativeModel(model_name)
                                     response = model.generate_content([prompt, image])
                                     result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
@@ -181,15 +183,18 @@ else:
                                     status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
                                     success = True
                                     break
-                                except Exception:
-                                    continue
+                                except Exception as err:
+                                    errors_log.append(f"• `{model_name}`: {err}")
+                                    status.write(f"⚠️ `{model_name}` ล้มเหลว")
                             
                             if not success:
-                                status.update(label="⚠️ เกิดข้อผิดพลาดในการเชื่อมต่อโมเดล Gemini", state="error", expanded=True)
-                                st.error("ไม่สามารถประมวลผลรูปภาพได้ในขณะนี้ กรุณากรอกชื่อวัตถุดิบด้วยตนเอง")
+                                status.update(label="❌ ไม่สามารถประมวลผลรูปภาพได้", state="error", expanded=True)
+                                st.write("**สาเหตุข้อผิดพลาดที่เกิดขึ้น:**")
+                                for log in errors_log:
+                                    st.error(log)
                                 
                         except Exception as e:
-                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                            status.update(label="⚠️ เกิดข้อผิดพลาดในระบบ", state="error", expanded=True)
                             st.error(f"ข้อผิดพลาด: {e}")
 
         st.divider()
