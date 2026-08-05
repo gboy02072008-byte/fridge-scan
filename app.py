@@ -37,12 +37,10 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """สแกนภาพด้วย Gemini 1.5 Flash เสถียร ฟรี และไม่ติด Quota 0"""
+    """สแกนภาพด้วย Gemini 1.5 Flash ฟรี และเสถียรที่สุด"""
     base64_image = compress_and_encode_image(image)
-    
     clean_key = api_key.strip().strip('"').strip("'")
     
-    # ใช้รุ่น 1.5 Flash ที่มี Quota ฟรีให้ทุกบัญชี Gmail
     models_to_try = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
     headers = {"Content-Type": "application/json"}
     
@@ -86,6 +84,7 @@ def analyze_image_with_gemini(api_key, image):
             last_error = f"[{model_name}] {e}"
             
     return False, last_error
+
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
@@ -158,7 +157,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Vision API**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini 1.5 Flash**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -188,24 +187,47 @@ else:
                     st.divider()
 
     # TAB 2: สแกนวัตถุดิบด้วย AI
-   if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-    with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-        gemini_key = st.secrets.get("GEMINI_API_KEY")
+    with tab2:
+        st.subheader("สแกนวัตถุดิบด้วย AI")
         
-        if not gemini_key:
-            status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
-            st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
-        else:
-            success, result = analyze_image_with_gemini(gemini_key, image)
-            if success:
-                st.session_state.scanned_name = result
-                status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
-            else:
-                status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
-                st.error(f"รายละเอียดข้อผิดพลาด: {result}")
+        # ทางลัดเลือกวัตถุดิบบ่อย
+        st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
+        shortcut_cols = st.columns(4)
+        if shortcut_cols[0].button("🥛 นมสด", use_container_width=True):
+            st.session_state.scanned_name = "นมสด"
+        if shortcut_cols[1].button("🥚 ไข่ไก่", use_container_width=True):
+            st.session_state.scanned_name = "ไข่ไก่"
+        if shortcut_cols[2].button("🍞 ขนมปัง", use_container_width=True):
+            st.session_state.scanned_name = "ขนมปัง"
+        if shortcut_cols[3].button("🐷 หมูสับ", use_container_width=True):
+            st.session_state.scanned_name = "หมูสับ"
+
+        st.markdown("---")
+        
+        img_file = st.camera_input("ถ่ายรูปวัตถุดิบ") or st.file_uploader("หรือเลือกรูปภาพ", type=["jpg", "png", "jpeg"])
+        
+        if img_file:
+            image = Image.open(img_file)
+            st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
+            
+            if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
+                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    gemini_key = st.secrets.get("GEMINI_API_KEY")
+                    
+                    if not gemini_key:
+                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+                    else:
+                        success, result = analyze_image_with_gemini(gemini_key, image)
+                        if success:
+                            st.session_state.scanned_name = result
+                            status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
+                        else:
+                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                            st.error(f"รายละเอียดข้อผิดพลาด: {result}")
 
         st.divider()
-        st.markdown("### 📝 ตรวจทานและบันทึกลลงตู้เย็น")
+        st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
         
         with st.form("add_fridge_form", clear_on_submit=True):
             item_name = st.text_input("ชื่อวัตถุดิบ / อาหาร", value=st.session_state.scanned_name, placeholder="เช่น นมสด, ไข่ไก่")
