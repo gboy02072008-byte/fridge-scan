@@ -37,7 +37,7 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_openrouter(api_key, image):
-    """เรียกใช้ Free Vision Models บน OpenRouter โดยวนลูปหาตัวที่พร้อมทำงาน"""
+    """เรียกใช้ Free Vision Models บน OpenRouter โดยใช้ชื่อโมเดลอัปเดตล่าสุด"""
     base64_image = compress_and_encode_image(image)
     
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -52,12 +52,11 @@ def analyze_image_with_openrouter(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    # รายชื่อโมเดลฟรีที่รองรับรูปภาพ (Vision) บน OpenRouter ปัจจุบัน
+    # รายชื่อโมเดลสแกนภาพฟรีบน OpenRouter ที่อัปเดตล่าสุด
     models_to_try = [
-        "qwen/qwen-2.5-vl-72b-instruct:free",
-        "google/gemini-2.0-flash-lite-preview-02-05:free",
-        "mistralai/pixtral-12b:free",
-        "google/gemini-2.0-flash-exp:free"
+        "qwen/qwen2.5-vl-72b-instruct:free",
+        "google/gemini-2.0-flash-lite-001:free",
+        "google/gemini-2.0-flash-001:free"
     ]
     
     last_error = ""
