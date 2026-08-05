@@ -37,10 +37,8 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API โดยใช้โมเดลมาตรฐาน gemini-2.0-flash"""
+    """เรียกใช้ Gemini API โมเดล gemini-2.0-flash"""
     base64_image = compress_and_encode_image(image)
-    
-    # ใช้โมเดลมาตรฐานของ Google AI Studio
     model_name = "gemini-2.0-flash"
     
     prompt = (
@@ -67,18 +65,20 @@ def analyze_image_with_gemini(api_key, image):
         ]
     }
     
-    response = requests.post(url, headers=headers, json=payload)
-    res_data = response.json()
-    
-    if response.status_code == 200:
-        try:
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        res_data = response.json()
+        
+        if response.status_code == 200:
             text = res_data["candidates"][0]["content"]["parts"][0]["text"]
             return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-        except Exception as e:
-            return False, f"การแกะผลลัพธ์ผิดพลาด: {e}"
-    else:
-        error_msg = res_data.get("error", {}).get("message", "Unknown error")
-        return False, f"[{model_name}] {error_msg}"
+        else:
+            error_msg = res_data.get("error", {}).get("message", "Unknown error")
+            if "quota" in error_msg.lower() or "limit" in error_msg.lower():
+                return False, "บัญชี Google นี้ติดจำกัดโควตา (Quota 0) กรุณาลองใช้ API Key จากบัญชี @gmail.com ส่วนตัวอื่น"
+            return False, f"[{model_name}] {error_msg}"
+    except Exception as e:
+        return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
