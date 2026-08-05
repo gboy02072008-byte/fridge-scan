@@ -188,44 +188,21 @@ else:
                     st.divider()
 
     # TAB 2: สแกนวัตถุดิบด้วย AI
-    with tab2:
-        st.subheader("สแกนวัตถุดิบด้วย Gemini AI")
+   if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
+    with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+        gemini_key = st.secrets.get("GEMINI_API_KEY")
         
-        # ทางลัดเลือกวัตถุดิบบ่อย
-        st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
-        shortcut_cols = st.columns(4)
-        if shortcut_cols[0].button("🥛 นมสด", use_container_width=True):
-            st.session_state.scanned_name = "นมสด"
-        if shortcut_cols[1].button("🥚 ไข่ไก่", use_container_width=True):
-            st.session_state.scanned_name = "ไข่ไก่"
-        if shortcut_cols[2].button("🍞 ขนมปัง", use_container_width=True):
-            st.session_state.scanned_name = "ขนมปัง"
-        if shortcut_cols[3].button("🐷 หมูสับ", use_container_width=True):
-            st.session_state.scanned_name = "หมูสับ"
-
-        st.markdown("---")
-        
-        img_file = st.camera_input("ถ่ายรูปวัตถุดิบ") or st.file_uploader("หรือเลือกรูปภาพ", type=["jpg", "png", "jpeg"])
-        
-        if img_file:
-            image = Image.open(img_file)
-            st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
-            
-            if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    gemini_key = st.secrets.get("GEMINI_API_KEY")
-                    
-                    if not gemini_key:
-                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
-                    else:
-                        success, result = analyze_image_with_github(st.secrets["GITHUB_TOKEN"], image)
-                        if success:
-                            st.session_state.scanned_name = result
-                            status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
-                        else:
-                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
-                            st.error(f"รายละเอียดข้อผิดพลาด: {result}")
+        if not gemini_key:
+            status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
+            st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+        else:
+            success, result = analyze_image_with_gemini(gemini_key, image)
+            if success:
+                st.session_state.scanned_name = result
+                status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
+            else:
+                status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                st.error(f"รายละเอียดข้อผิดพลาด: {result}")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลลงตู้เย็น")
