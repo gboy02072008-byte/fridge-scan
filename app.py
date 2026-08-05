@@ -1,5 +1,99 @@
 import streamlit as st
 
+from supabase import create_client, Client
+
+# เชื่อมต่อกับ Supabase โดยดึง URL และ KEY จาก Secrets ที่เราตั้งไว้
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+# --------------------------------------------------
+# ฟังก์ชันที่ 1: ดึงรายการของทั้งหมดในตู้เย็นมาแสดง
+def get_fridge_items():
+    response = supabase.table("fridge_items").select("*").order("expiry_date", desc=False).execute()
+    return response.data
+
+# ฟังก์ชันที่ 2: เพิ่มของใหม่ลงฐานข้อมูล (เรียกใช้ตอน AI สแกนเสร็จ)
+def add_item_to_fridge(name, category, quantity, expiry_date):
+    data = {
+        "name": name,
+        "category": category,
+        "quantity": quantity,
+        "expiry_date": str(expiry_date)
+    }
+    supabase.table("fridge_items").insert(data).execute()
+
+# ฟังก์ชันที่ 3: ลบของออกจากตู้เย็น (เมื่อกดปุ่มกินหมดแล้ว)
+def delete_item(item_id):
+    supabase.table("fridge_items").delete().eq("id", item_id).execute()
+
+# --------------------------------------------------
+st.title("🍎 แอปตู้เย็น FridgeScan")
+
+# สร้างแท็บสลับหน้า 2 หน้า
+tab1, tab2 = st.tabs(["📦 ของในตู้เย็น", "📷 สแกนเพิ่มของ"])
+
+# --- TAB 1: แสดงของในตู้เย็นถาวร ---
+with tab1:
+    st.subheader("รายการของที่อยู่ในตู้เย็น")
+    
+    # ดึงข้อมูลจริงจาก Supabase
+    items = get_fridge_items()
+    
+    if not items:
+        st.info("ตู้เย็นว่างเปล่า ลองไปที่แถบ '📷 สแกนเพิ่มของ' ได้เลยครับ")
+    else:
+        for item in items:
+            col1, col2, col3 = st.columns([3, 2, 1])
+            with col1:
+                st.write(f"**{item['name']}** ({item['category']})")
+            with col2:
+                st.write(f"⏳ หมดอายุ: {item['expiry_date']}")
+            with col3:
+                # กดลบข้อมูลออกจากฐานข้อมูลจริง
+                if st.button("ทานหมดแล้ว", key=f"del_{item['id']}"):
+                    delete_item(item['id'])
+                    st.success(f"ลบ {item['name']} ออกจากตู้เย็นแล้ว!")
+                    st.rerun()
+
+# --- TAB 2: สแกนภาพด้วย Gemini แล้วบันทึกลง Supabase ---
+with tab2:
+    st.subheader("สแกนวัตถุดิบด้วย AI")
+    
+    img_file = st.camera_input("ถ่ายรูปวัตถุดิบ") or st.file_uploader("หรือเลือกรูปภาพ", type=["jpg", "png", "jpeg"])
+    
+    if img_file:
+        image = Image.open(img_file)
+        st.image(image, caption="รูปถ่ายวัตถุดิบ", use_container_width=True)
+        
+        if st.button("🤖 ให้ AI สแกนบันทึกเข้าตู้เย็น"):
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = "วิเคราะห์ภาพนี้ แล้วระบุชื่ออาหาร/วัตถุดิบสั้นๆ เป็นภาษาไทยเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, ส้ม"
+            
+            with st.spinner("AI กำลังวิเคราะห์และบันทึกลงตู้เย็น..."):
+                response = model.generate_content([prompt, image])
+                food_name = response.text.strip()
+                
+                # คำนวณวันหมดอายุอัตโนมัติ (ตั้งไว้ล่วงหน้า 7 วัน)
+                default_expiry = datetime.date.today() + datetime.timedelta(days=7)
+                
+                # บันทึกลง Supabase จริง!
+                add_item_to_fridge(
+                    name=food_name,
+                    category="อาหาร/วัตถุดิบ",
+                    quantity=1,
+                    expiry_date=default_expiry
+                )
+                
+                st.success(f"บันทึก '{food_name}' ลงตู้เย็นเรียบร้อยแล้ว!")
+                st.rerun()
+
+
+
+
 # 1. กำหนดระบบ Session State สำหรับเช็คสถานะการล็อกอิน
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
