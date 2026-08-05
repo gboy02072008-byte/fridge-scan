@@ -94,7 +94,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Dynamic AI**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini AI**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -148,7 +148,7 @@ else:
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
             if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 กำลังค้นหาโมเดลและวิเคราะห์รูปภาพ...", expanded=True) as status:
+                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
                     gemini_key = st.secrets.get("GEMINI_API_KEY")
                     if not gemini_key:
                         status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
@@ -157,15 +157,8 @@ else:
                         try:
                             genai.configure(api_key=gemini_key)
                             
-                            # ดึงรายชื่อโมเดลที่ใช้งานได้จาก Google API โดยตรงแบบ Dynamic
-                            all_models = genai.list_models()
-                            valid_models = [
-                                m.name for m in all_models 
-                                if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name
-                            ]
-                            
-                            # จัดลำดับให้โมเดลตระกูล flash ถูกใช้งานก่อน
-                            valid_models.sort(key=lambda x: ('flash' not in x, x))
+                            # เลือกใช้โมเดลหลักมาตรฐาน
+                            model = genai.GenerativeModel("gemini-1.5-flash")
                             
                             prompt = (
                                 "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -173,34 +166,19 @@ else:
                                 "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
                             )
                             
-                            success = False
-                            errors_log = []
+                            response = model.generate_content([prompt, image])
+                            result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
                             
-                            for model_path in valid_models:
-                                try:
-                                    status.write(f"🔄 กำลังประมวลผลด้วย: `{model_path}`")
-                                    model = genai.GenerativeModel(model_path)
-                                    response = model.generate_content([prompt, image])
-                                    result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
-                                    
-                                    st.session_state.scanned_name = result_text
-                                    status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
-                                    success = True
-                                    break
-                                except Exception as err:
-                                    errors_log.append(f"• `{model_path}`: {err}")
+                            st.session_state.scanned_name = result_text
+                            status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
                             
-                            if not success:
-                                status.update(label="❌ ไม่สามารถประมวลผลรูปภาพได้", state="error", expanded=True)
-                                if errors_log:
-                                    for log in errors_log[:3]:
-                                        st.error(log)
-                                else:
-                                    st.error("ไม่พบโมเดล Gemini ที่พร้อมใช้งานใน API Key นี้")
-                                
                         except Exception as e:
-                            status.update(label="⚠️ เกิดข้อผิดพลาดในการเชื่อมต่อ Google API", state="error", expanded=True)
-                            st.error(f"ข้อผิดพลาด: {e}")
+                            err_str = str(e)
+                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                            if "429" in err_str or "quota" in err_str.lower():
+                                st.error("❌ โควตา API Key นี้เป็น 0 (Quota Exceeded) กรุณาสร้าง API Key ใหม่ใน Google AI Studio โดยเลือก 'Create API key in new project'")
+                            else:
+                                st.error(f"ข้อผิดพลาด: {e}")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
