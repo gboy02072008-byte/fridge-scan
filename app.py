@@ -42,8 +42,9 @@ def analyze_image_with_github(api_key, image):
     
     url = "https://models.inference.ai.azure.com/chat/completions"
     headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+        "User-Agent": "FridgeScanApp/1.0"
     }
     
     prompt = (
@@ -72,14 +73,20 @@ def analyze_image_with_github(api_key, image):
     
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=15)
-        res_data = response.json()
         
+        # ป้องกันการพังเมื่อ Server ส่ง HTML Error กลับมา
+        try:
+            res_data = response.json()
+        except Exception:
+            return False, f"[HTTP {response.status_code}] Token หรือ Endpoint มีปัญหา: {response.text[:150]}"
+            
         if response.status_code == 200 and "choices" in res_data:
             text = res_data["choices"][0]["message"]["content"]
             return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
         else:
-            error_msg = res_data.get("error", {}).get("message", "Unknown error")
-            return False, f"[GitHub Error] {error_msg}"
+            error_msg = res_data.get("error", {}).get("message", str(res_data))
+            return False, f"[GitHub Error {response.status_code}] {error_msg}"
+            
     except Exception as e:
         return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
 
