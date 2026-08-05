@@ -36,13 +36,15 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API โดยตรงจาก Google สแกนภาพเสถียรที่สุด"""
+def analyze_image_with_github(api_key, image):
+    """ใช้ GitHub Models (GPT-4o-mini) สแกนภาพฟรี สถียร ไม่ติด Quota 0"""
     base64_image = compress_and_encode_image(image)
     
-    # วนลูปใช้โมเดล Gemini Flash ที่เสถียรที่สุด
-    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
-    headers = {"Content-Type": "application/json"}
+    url = "https://models.inference.ai.azure.com/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -51,14 +53,16 @@ def analyze_image_with_gemini(api_key, image):
     )
     
     payload = {
-        "contents": [
+        "model": "gpt-4o-mini",
+        "messages": [
             {
-                "parts": [
-                    {"text": prompt},
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
                     {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": base64_image
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
                         }
                     }
                 ]
@@ -66,24 +70,18 @@ def analyze_image_with_gemini(api_key, image):
         ]
     }
     
-    last_error = ""
-    for model_name in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=15)
-            res_data = response.json()
-            
-            if response.status_code == 200 and "candidates" in res_data and len(res_data["candidates"]) > 0:
-                text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                if text:
-                    return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-            else:
-                error_msg = res_data.get("error", {}).get("message", "Unknown error")
-                last_error = f"[{model_name}] {error_msg}"
-        except Exception as e:
-            last_error = f"[{model_name}] {e}"
-            
-    return False, last_error
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        res_data = response.json()
+        
+        if response.status_code == 200 and "choices" in res_data:
+            text = res_data["choices"][0]["message"]["content"]
+            return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+        else:
+            error_msg = res_data.get("error", {}).get("message", "Unknown error")
+            return False, f"[GitHub Error] {error_msg}"
+    except Exception as e:
+        return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
