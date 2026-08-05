@@ -1,6 +1,6 @@
 import streamlit as st
 
-# --- 0. ตั้งค่า Page Config (ต้องอยู่บนสุดก่อนคำสั่ง st. อื่นๆ ทั้งหมด) ---
+# --- 0. ตั้งค่า Page Config (ต้องอยู่บนสุด) ---
 st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
 
 import google.generativeai as genai
@@ -159,28 +159,40 @@ else:
                         try:
                             genai.configure(api_key=gemini_key)
                             
-                            # เลือกใช้โมเดลหลักมาตรฐาน
-                            model = genai.GenerativeModel("gemini-2.0-flash")
-                            
+                            # รายชื่อโมเดลมาตรฐานที่รองรับในปัจจุบัน
+                            candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash"]
                             prompt = (
                                 "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
                                 "ระบุเฉพาะชื่อวัตถุดิบอย่างสั้น สรุปตรงประเด็นที่สุดเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, สเต๊กเนื้อ, ผักกาดขาว, แอปเปิ้ล "
                                 "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
                             )
                             
-                            response = model.generate_content([prompt, image])
-                            result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
+                            success = False
+                            last_error = ""
+                            for model_name in candidate_models:
+                                try:
+                                    model = genai.GenerativeModel(model_name)
+                                    response = model.generate_content([prompt, image])
+                                    result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
+                                    
+                                    st.session_state.scanned_name = result_text
+                                    status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
+                                    success = True
+                                    break
+                                except Exception as err:
+                                    last_error = str(err)
+                                    continue
                             
-                            st.session_state.scanned_name = result_text
-                            status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
-                            
+                            if not success:
+                                status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                                if "429" in last_error or "quota" in last_error.lower():
+                                    st.error("❌ โควตา API Key นี้หมด หรือยังไม่ได้เปิดใช้อย่างถูกต้อง กรุณาสร้าง API Key ใหม่ใน Google AI Studio")
+                                else:
+                                    st.error(f"ข้อผิดพลาด: {last_error}")
+
                         except Exception as e:
-                            err_str = str(e)
-                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
-                            if "429" in err_str or "quota" in err_str.lower():
-                                st.error("❌ โควตา API Key นี้เป็น 0 (Quota Exceeded) กรุณาสร้าง API Key ใหม่ใน Google AI Studio โดยเลือก 'Create API key in new project'")
-                            else:
-                                st.error(f"ข้อผิดพลาด: {e}")
+                            status.update(label="⚠️ เกิดข้อผิดพลาดในระบบ", state="error", expanded=True)
+                            st.error(f"ข้อผิดพลาด: {e}")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
