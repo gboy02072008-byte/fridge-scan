@@ -36,10 +36,15 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_gemini(api_key, image):
-    """เรียกใช้ Gemini API โมเดล gemini-2.0-flash"""
+def analyze_image_with_openrouter(api_key, image):
+    """เรียกใช้ Gemini 2.0 Flash ฟรีผ่าน OpenRouter API"""
     base64_image = compress_and_encode_image(image)
-    model_name = "gemini-2.0-flash"
+    
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -47,17 +52,17 @@ def analyze_image_with_gemini(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
     payload = {
-        "contents": [
+        "model": "google/gemini-2.0-flash-001:free",
+        "messages": [
             {
-                "parts": [
-                    {"text": prompt},
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
                     {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": base64_image
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
                         }
                     }
                 ]
@@ -70,11 +75,11 @@ def analyze_image_with_gemini(api_key, image):
         res_data = response.json()
         
         if response.status_code == 200:
-            text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+            text = res_data["choices"][0]["message"]["content"]
             return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
         else:
             error_msg = res_data.get("error", {}).get("message", "Unknown error")
-            return False, f"[{model_name}] {error_msg}"
+            return False, f"[OpenRouter] {error_msg}"
     except Exception as e:
         return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
 
@@ -150,7 +155,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini 2.0 Flash**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Gemini 2.0 Flash (OpenRouter)**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -205,20 +210,19 @@ else:
             
             if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
                 with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    # ดึง Secret ตัวใหม่ GEMINI_KEY_V2 (ถ้าไม่มีให้ลองดึงตัวเก่า)
-                    gemini_key = st.secrets.get("GEMINI_KEY_V2") or st.secrets.get("GEMINI_API_KEY")
+                    openrouter_key = st.secrets.get("OPENROUTER_API_KEY")
                     
-                    if not gemini_key:
-                        status.update(label="❌ ไม่พบ API Key ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม GEMINI_KEY_V2 ใน Streamlit Secrets ก่อนใช้งาน")
+                    if not openrouter_key:
+                        status.update(label="❌ ไม่พบ OPENROUTER_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม OPENROUTER_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        success, result = analyze_image_with_gemini(gemini_key, image)
+                        success, result = analyze_image_with_openrouter(openrouter_key, image)
                         if success:
                             st.session_state.scanned_name = result
                             status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
                         else:
                             status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
-                            st.error(f"รายละเอียดข้อผิดพลาดจาก Google: {result}")
+                            st.error(f"รายละเอียดข้อผิดพลาด: {result}")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
