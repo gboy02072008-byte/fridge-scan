@@ -185,7 +185,7 @@ response = client.chat.completions.create(
                 {
                     "type": "text",
                     "text": "วิเคราะห์ภาพนี้ ระบุชื่ออาหารหรือวัตถุดิบเป็นภาษาไทยสั้นๆ เพียงชื่อเดียว เช่น นมสด, ไข่ไก่, หมูสับ, แอปเปิ้ล"
-                },
+                }
                 {
                     "type": "image_url",
                     "image_url": {
