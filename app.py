@@ -1,13 +1,13 @@
 import streamlit as st
-import google.generativeai as genai
+from groq import Groq
 from PIL import Image
 from supabase import create_client, Client
 import datetime
 import time
+import base64
+import io
 
 # --- 1. ตั้งค่า API Key & DB Connection ---
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -16,19 +16,25 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Session State สำหรับเก็บข้อมูล
+# จัดเก็บ Session State
 if "user" not in st.session_state:
     st.session_state.user = None
 if "scanned_name" not in st.session_state:
     st.session_state.scanned_name = ""
 
-# --- Helper Function: ย่อขนาดรูปภาพเพื่อความรวดเร็ว ---
-def compress_image(image, max_size=(800, 800)):
+# --- Helper Functions ---
+def compress_and_encode_image(image, max_size=(600, 600)):
+    """ย่อขนาดรูปภาพและแปลงเป็น Base64 สำหรับส่งให้ Groq Vision API"""
     img = image.copy()
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
     img.thumbnail(max_size)
-    return img
+    
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG", quality=85)
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-# --- 2. ฟังก์ชัน Auth ---
+# --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -51,7 +57,7 @@ def logout():
     st.session_state.scanned_name = ""
     st.rerun()
 
-# --- 3. ฟังก์ชัน Database ---
+# --- 3. ฟังก์ชันจัดการตู้เย็น (Database) ---
 def get_fridge_items(user_id):
     res = supabase.table("fridge_items").select("*").eq("user_id", user_id).order("expiry_date", desc=False).execute()
     return res.data
@@ -69,12 +75,12 @@ def add_item_to_fridge(name, category, quantity, expiry_date, user_id):
 def delete_item(item_id):
     supabase.table("fridge_items").delete().eq("id", item_id).execute()
 
-# --- 4. หน้าตาแอปพลิเคชัน (UX/UI Polish) ---
-st.set_page_config(page_title="FridgeScan", page_icon="🍎", layout="centered")
+# --- 4. หน้าตาแอปพลิเคชัน (UI Flow) ---
+st.set_page_config(page_title="FridgeScan (Groq AI)", page_icon="🍎", layout="centered")
 
-st.title("🍎 แอปตู้เย็น FridgeScan")
+st.title("🍎 แอปตู้เย็น FridgeScan (Groq AI)")
 
-# กรณีไม่ได้ล็อกอิน
+# ถ้ายังไม่ได้ล็อกอิน -> แสดงหน้า Login / Register
 if st.session_state.user is None:
     auth_tab1, auth_tab2 = st.tabs(["🔑 เข้าสู่ระบบ", "📝 สมัครสมาชิก"])
     
@@ -96,24 +102,25 @@ if st.session_state.user is None:
             else:
                 st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
 
-# กรณีล็อกอินเรียบร้อย
+# ถ้าล็อกอินแล้ว -> แสดงหน้าแอปตู้เย็นหลัก
 else:
     user_id = st.session_state.user.id
     user_email = st.session_state.user.email
     
-    st.sidebar.write(f"👤 **{user_email}**")
+    st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Groq Vision AI**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
     tab1, tab2 = st.tabs(["📦 ตู้เย็นของฉัน", "➕ เพิ่มของเข้าตู้เย็น"])
 
-    # TAB 1: แสดงของในตู้เย็น
+    # TAB 1: รายการอาหารในตู้เย็น
     with tab1:
         st.subheader("รายการของในตู้เย็น")
         items = get_fridge_items(user_id)
         
         if not items:
-            st.info("ตู้เย็นยังว่างเปล่า ลองไปที่แถบ '➕ เพิ่มของเข้าตู้เย็น' ดูครับ")
+            st.info("ตู้เย็นว่างเปล่า ลองไปที่แถบ '➕ เพิ่มของเข้าตู้เย็น' ดูครับ")
         else:
             for item in items:
                 with st.container():
@@ -130,34 +137,80 @@ else:
                             st.rerun()
                     st.divider()
 
-    # TAB 2: สแกน/เพิ่มของ (มีระบบ AI + Fallback กรอกมือ)
+    # TAB 2: สแกนวัตถุดิบด้วย Groq AI
     with tab2:
-        st.subheader("เลือกวิธีเพิ่มวัตถุดิบ")
+        st.subheader("สแกนวัตถุดิบด้วย Groq Vision AI")
         
-        img_file = st.camera_input("ถ่ายรูปวัตถุดิบ") or st.file_uploader("หรืออัปโหลดรูปภาพ", type=["jpg", "png", "jpeg"])
+        # ทางลัดเลือกวัตถุดิบบ่อย
+        st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
+        shortcut_cols = st.columns(4)
+        if shortcut_cols[0].button("🥛 นมสด", use_container_width=True):
+            st.session_state.scanned_name = "นมสด"
+        if shortcut_cols[1].button("🥚 ไข่ไก่", use_container_width=True):
+            st.session_state.scanned_name = "ไข่ไก่"
+        if shortcut_cols[2].button("🍞 ขนมปัง", use_container_width=True):
+            st.session_state.scanned_name = "ขนมปัง"
+        if shortcut_cols[3].button("🐷 หมูสับ", use_container_width=True):
+            st.session_state.scanned_name = "หมูสับ"
+
+        st.markdown("---")
+        
+        img_file = st.camera_input("ถ่ายรูปวัตถุดิบ") or st.file_uploader("หรือเลือกรูปภาพ", type=["jpg", "png", "jpeg"])
         
         if img_file:
             image = Image.open(img_file)
-            compressed_img = compress_image(image) # ย่อรูปเพื่อประมวลผลเร็ว
-            st.image(compressed_img, caption="รูปถ่ายวัตถุดิบ", width=300)
+            st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
-            if st.button("🤖 ให้ AI ช่วยวิเคราะห์รูป", use_container_width=True):
-                with st.status("🔍 AI กำลังวิเคราะห์รูปภาพ...", expanded=True) as status:
+            if st.button("⚡ ให้ Groq AI สแกนรูปภาพ", use_container_width=True):
+                with st.status("🚀 Groq AI กำลังประมวลผลอย่างรวดเร็ว...", expanded=True) as status:
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        prompt = "วิเคราะห์ภาพนี้ ระบุชื่ออาหารหรือวัตถุดิบเป็นภาษาไทยสั้นๆ เพียงชื่อเดียว เช่น นมสด, ไข่ไก่, หมูสับ"
-                        
-                        response = model.generate_content([prompt, compressed_img])
-                        st.session_state.scanned_name = response.text.strip()
-                        status.update(label="✅ วิเคราะห์สำเร็จ!", state="complete", expanded=False)
+                        # อ่าน GROQ_API_KEY จาก Secrets
+                        groq_key = st.secrets.get("GROQ_API_KEY")
+                        if not groq_key:
+                            status.update(label="❌ ไม่พบ GROQ_API_KEY ใน Secrets", state="error", expanded=True)
+                            st.error("กรุณาเพิ่ม GROQ_API_KEY ใน Streamlit Secrets ก่อนใช้งานครับ")
+                        else:
+                            client = Groq(api_key=groq_key)
+                            
+                            # แปลงรูปเป็น Base64
+                            base64_image = compress_and_encode_image(image)
+                            
+                            # เรียกใช้ Groq Llama 3.2 Vision Model
+                            response = client.chat.completions.create(
+                                model="llama-3.2-11b-vision-preview",
+                                messages=[
+                                    {
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "text",
+                                                "text": "วิเคราะห์ภาพนี้ ระบุชื่ออาหารหรือวัตถุดิบเป็นภาษาไทยสั้นๆ เพียงชื่อเดียว เช่น นมสด, ไข่ไก่, หมูสับ, แอปเปิ้ล"
+                                            },
+                                            {
+                                                "type": "image_url",
+                                                "image_url": {
+                                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ],
+                                temperature=0.2,
+                                max_tokens=100
+                            )
+                            
+                            result_text = response.choices[0].message.content.strip()
+                            st.session_state.scanned_name = result_text
+                            status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
+                            
                     except Exception as e:
-                        status.update(label="⚠️ AI ไม่สามารถอ่านรูปได้ชั่วคราว", state="error", expanded=False)
-                        st.toast("ระบบ AI ติดขัดโควตาชั่วคราว คุณสามารถพิมพ์ชื่อวัตถุดิบเองได้เลยครับ", icon="💡")
+                        status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                        st.error(f"ข้อผิดพลาด: {e}")
+                        st.toast("คุณสามารถพิมพ์ชื่อวัตถุดิบลงในแบบฟอร์มด้านล่างได้เลยครับ", icon="💡")
 
         st.divider()
-        st.markdown("### 📝 ตรวจทานและบันทึกข้อมูล")
+        st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
         
-        # ฟอร์มบันทึกข้อมูล (รับค่าจาก AI หรือกรอกมือก็ได้)
         with st.form("add_fridge_form", clear_on_submit=True):
             item_name = st.text_input("ชื่อวัตถุดิบ / อาหาร", value=st.session_state.scanned_name, placeholder="เช่น นมสด, ไข่ไก่")
             category = st.selectbox("หมวดหมู่", ["อาหารสด/วัตถุดิบ", "เครื่องดื่ม", "ขนม/ของหวาน", "เครื่องปรุง", "อื่นๆ"])
@@ -174,7 +227,7 @@ else:
                         expiry_date=expiry_date,
                         user_id=user_id
                     )
-                    st.session_state.scanned_name = "" # ล้างค่าที่สแกน
+                    st.session_state.scanned_name = ""
                     st.toast(f"บันทึก '{item_name}' เรียบร้อย!", icon="✅")
                     time.sleep(1)
                     st.rerun()
