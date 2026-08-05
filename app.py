@@ -37,14 +37,20 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_github(api_key, image):
-    """ใช้ GitHub Models (GPT-4o-mini) สแกนภาพฟรี สถียร ไม่ติด Quota 0"""
+    """ใช้ GitHub Models (GPT-4o-mini) สแกนภาพฟรี พร้อมระบบตรวจสอบ Token"""
     base64_image = compress_and_encode_image(image)
     
+    # ทำความสะอาดรหัส Token ป้องกันเครื่องหมายคำพูดหรือเว้นวรรคส่วนเกิน
+    clean_key = api_key.strip().strip('"').strip("'")
+    
+    # ตรวจสอบรูปแบบคีย์เบื้องต้น
+    if not clean_key.startswith("ghp_"):
+        return False, f"[Token Error] GITHUB_TOKEN ใน Secrets ต้องขึ้นต้นด้วย 'ghp_' เท่านั้น (ปัจจุบัน: {clean_key[:8]}...)"
+
     url = "https://models.inference.ai.azure.com/chat/completions"
     headers = {
-        "Authorization": f"Bearer {api_key.strip()}",
-        "Content-Type": "application/json",
-        "User-Agent": "FridgeScanApp/1.0"
+        "Authorization": f"Bearer {clean_key}",
+        "Content-Type": "application/json"
     }
     
     prompt = (
@@ -74,22 +80,17 @@ def analyze_image_with_github(api_key, image):
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=15)
         
-        # ป้องกันการพังเมื่อ Server ส่ง HTML Error กลับมา
-        try:
+        if response.status_code == 200:
             res_data = response.json()
-        except Exception:
-            return False, f"[HTTP {response.status_code}] Token หรือ Endpoint มีปัญหา: {response.text[:150]}"
-            
-        if response.status_code == 200 and "choices" in res_data:
-            text = res_data["choices"][0]["message"]["content"]
-            return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-        else:
-            error_msg = res_data.get("error", {}).get("message", str(res_data))
-            return False, f"[GitHub Error {response.status_code}] {error_msg}"
+            if "choices" in res_data and len(res_data["choices"]) > 0:
+                text = res_data["choices"][0]["message"]["content"]
+                return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+        
+        # หากเกิดข้อผิดพลาด ให้ดึงข้อความตอบกลับจาก GitHub ออกมาแสดง
+        return False, f"[HTTP {response.status_code}] {response.text[:200]}"
             
     except Exception as e:
         return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
-
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
