@@ -1,4 +1,8 @@
 import streamlit as st
+
+# --- 0. ตั้งค่า Page Config (ต้องอยู่บนสุดก่อนคำสั่ง st. อื่นๆ ทั้งหมด) ---
+st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
+
 import google.generativeai as genai
 from PIL import Image
 from supabase import create_client, Client
@@ -62,8 +66,6 @@ def delete_item(item_id):
     supabase.table("fridge_items").delete().eq("id", item_id).execute()
 
 # --- 4. หน้าตาแอปพลิเคชัน (UI Flow) ---
-st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
-
 st.title("🍎 แอปตู้เย็น FridgeScan")
 
 # ถ้ายังไม่ได้ล็อกอิน -> แสดงหน้า Login / Register
