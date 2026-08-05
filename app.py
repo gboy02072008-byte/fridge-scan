@@ -36,39 +36,13 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_groq(api_key, image):
-    """เรียกใช้ Groq API โดยสลับใช้โมเดล Vision ตัวเต็มล่าสุดให้อัตโนมัติ"""
+def analyze_image_with_gemini(api_key, image):
+    """เรียกใช้ Gemini API โดยตรงจาก Google สแกนภาพเสถียรที่สุด"""
     base64_image = compress_and_encode_image(image)
     
-    # 1. รายชื่อโมเดล Groq Vision ตัวเต็มอัปเดตปัจจุบัน
-    models_to_try = [
-        "llama-3.2-11b-vision-instruct",
-        "llama-3.2-90b-vision-instruct"
-    ]
-    
-    # 2. ดึงรายชื่อโมเดล Vision ล่าสุดจาก Groq API โดยตรงเพื่อป้องกันปัญหาเปลี่ยนชื่อโมเดลในอนาคต
-    try:
-        res_models = requests.get(
-            "https://api.groq.com/openai/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=5
-        )
-        if res_models.status_code == 200:
-            data = res_models.json().get("data", [])
-            active_vision = [
-                m["id"] for m in data 
-                if "vision" in m["id"].lower()
-            ]
-            if active_vision:
-                models_to_try = active_vision + [m for m in models_to_try if m not in active_vision]
-    except Exception:
-        pass
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    # วนลูปใช้โมเดล Gemini Flash ที่เสถียรที่สุด
+    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
+    headers = {"Content-Type": "application/json"}
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -76,33 +50,31 @@ def analyze_image_with_groq(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    last_error = ""
-    for model_name in models_to_try:
-        payload = {
-            "model": model_name,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64_image
                         }
-                    ]
-                }
-            ],
-            "temperature": 0.2
-        }
-        
+                    }
+                ]
+            }
+        ]
+    }
+    
+    last_error = ""
+    for model_name in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=15)
             res_data = response.json()
             
-            if response.status_code == 200 and "choices" in res_data and len(res_data["choices"]) > 0:
-                text = res_data["choices"][0]["message"]["content"]
+            if response.status_code == 200 and "candidates" in res_data and len(res_data["candidates"]) > 0:
+                text = res_data["candidates"][0]["content"]["parts"][0]["text"]
                 if text:
                     return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
             else:
@@ -185,7 +157,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Groq Vision AI (Llama 3.2)**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Vision API**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -216,7 +188,7 @@ else:
 
     # TAB 2: สแกนวัตถุดิบด้วย AI
     with tab2:
-        st.subheader("สแกนวัตถุดิบด้วย AI")
+        st.subheader("สแกนวัตถุดิบด้วย Gemini AI")
         
         # ทางลัดเลือกวัตถุดิบบ่อย
         st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
@@ -239,14 +211,14 @@ else:
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
             if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 Groq AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    groq_key = st.secrets.get("GROQ_API_KEY")
+                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    gemini_key = st.secrets.get("GEMINI_API_KEY")
                     
-                    if not groq_key:
-                        status.update(label="❌ ไม่พบ GROQ_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม GROQ_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+                    if not gemini_key:
+                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        success, result = analyze_image_with_groq(groq_key, image)
+                        success, result = analyze_image_with_gemini(gemini_key, image)
                         if success:
                             st.session_state.scanned_name = result
                             status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
@@ -255,7 +227,7 @@ else:
                             st.error(f"รายละเอียดข้อผิดพลาด: {result}")
 
         st.divider()
-        st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
+        st.markdown("### 📝 ตรวจทานและบันทึกลลงตู้เย็น")
         
         with st.form("add_fridge_form", clear_on_submit=True):
             item_name = st.text_input("ชื่อวัตถุดิบ / อาหาร", value=st.session_state.scanned_name, placeholder="เช่น นมสด, ไข่ไก่")
