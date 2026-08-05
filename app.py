@@ -36,11 +36,11 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_openrouter(api_key, image):
-    """เรียกใช้ Free Vision Models บน OpenRouter โดยข้ามตัวที่ปิดให้บริการอัตโนมัติ"""
+def analyze_image_with_groq(api_key, image):
+    """เรียกใช้ Groq API (Llama 3.2 Vision) ประมวลผลภาพฟรีและเสถียรที่สุด"""
     base64_image = compress_and_encode_image(image)
     
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -52,63 +52,37 @@ def analyze_image_with_openrouter(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    # 1. ดึงรายชื่อโมเดลฟรีทั้งหมดที่เปิดใช้งานจริงบน OpenRouter ณ วินาทีนั้น
-    candidate_models = []
-    try:
-        res_models = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
-        if res_models.status_code == 200:
-            data = res_models.json().get("data", [])
-            for m in data:
-                m_id = m.get("id", "")
-                if m_id.endswith(":free") and any(k in m_id.lower() for k in ["gemini", "qwen", "vision", "vl", "pixtral"]):
-                    candidate_models.append(m_id)
-    except Exception:
-        pass
-
-    # หากดึงไม่สำเร็จ ให้ใส่รายการสำรอง
-    if not candidate_models:
-        candidate_models = [
-            "qwen/qwen-2.5-vl-72b-instruct:free",
-            "google/gemini-2.0-flash-lite-001:free",
-            "google/gemini-2.0-flash-001:free"
-        ]
-
-    # 2. วนลูปทดสอบส่งรูปไปวิเคราะห์
-    for model_name in candidate_models:
-        payload = {
-            "model": model_name,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
+    payload = {
+        "model": "llama-3.2-11b-vision-preview",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
                         }
-                    ]
-                }
-            ]
-        }
+                    }
+                ]
+            }
+        ],
+        "temperature": 0.2
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        res_data = response.json()
         
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            res_data = response.json()
-            
-            # หากโมเดลนั้นล่ม/ไม่มี endpoint ให้ข้ามไปลองตัวถัดไปทันที
-            if response.status_code != 200 or "error" in res_data:
-                continue
-                
-            if "choices" in res_data and len(res_data["choices"]) > 0:
-                text = res_data["choices"][0]["message"]["content"]
-                if text:
-                    return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-        except Exception:
-            continue
-
-    return False, "เซิร์ฟเวอร์สแกนภาพฟรีบน OpenRouter ไม่พร้อมใช้งานชั่วคราว (สามารถใช้ปุ่มทางลัด หรือพิมพ์ชื่อวัตถุดิบแทนได้ครับ)"
+        if response.status_code == 200 and "choices" in res_data:
+            text = res_data["choices"][0]["message"]["content"]
+            return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+        else:
+            error_msg = res_data.get("error", {}).get("message", "Unknown error")
+            return False, f"[Groq Error] {error_msg}"
+    except Exception as e:
+        return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ Groq: {e}"
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
@@ -182,7 +156,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **OpenRouter AI (Free Tier)**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Groq Vision AI (Llama 3.2)**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -236,14 +210,14 @@ else:
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
             if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    openrouter_key = st.secrets.get("OPENROUTER_API_KEY")
+                with st.status("🚀 Groq AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    groq_key = st.secrets.get("GROQ_API_KEY")
                     
-                    if not openrouter_key:
-                        status.update(label="❌ ไม่พบ OPENROUTER_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม OPENROUTER_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+                    if not groq_key:
+                        status.update(label="❌ ไม่พบ GROQ_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม GROQ_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        success, result = analyze_image_with_openrouter(openrouter_key, image)
+                        success, result = analyze_image_with_groq(groq_key, image)
                         if success:
                             st.session_state.scanned_name = result
                             status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
