@@ -36,8 +36,8 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_openrouter(api_key, image):
-    """เรียกใช้ Gemini 2.0 Flash ฟรีผ่าน OpenRouter API"""
+def analyze_image_with_gemini(api_key, image):
+    """เรียกใช้ Gemini 2.0 Flash ฟรีผ่าน OpenRouter เพื่อเลี่ยงปัญหา Quota 0 ของ Google"""
     base64_image = compress_and_encode_image(image)
     
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -79,7 +79,7 @@ def analyze_image_with_openrouter(api_key, image):
             return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
         else:
             error_msg = res_data.get("error", {}).get("message", "Unknown error")
-            return False, f"[OpenRouter] {error_msg}"
+            return False, f"[OpenRouter Error] {error_msg}"
     except Exception as e:
         return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
 
@@ -210,7 +210,7 @@ else:
             
             if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
                 with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    openrouter_key = st.secrets.get("OPENROUTER_API_KEY")
+                    gemini_key = st.secrets.get("OPENROUTER_API_KEY")
                     
                     if not openrouter_key:
                         status.update(label="❌ ไม่พบ OPENROUTER_API_KEY ใน Secrets", state="error", expanded=True)
