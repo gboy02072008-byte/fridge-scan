@@ -37,7 +37,7 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_image_with_openrouter(api_key, image):
-    """เรียกใช้ Free Vision Models บน OpenRouter โดยเน้นเฉพาะโมเดลที่ตอบสนองไว"""
+    """เรียกใช้ Free Vision Models บน OpenRouter โดยข้ามตัวที่ปิดให้บริการอัตโนมัติ"""
     base64_image = compress_and_encode_image(image)
     
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -52,29 +52,29 @@ def analyze_image_with_openrouter(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    # 1. รายชื่อโมเดลฟรีกลุ่ม Vision ที่ประมวลผลไวและเสถียรที่สุด
-    preferred_models = [
-        "google/gemini-2.0-flash-lite-001:free",
-        "qwen/qwen-2.5-vl-72b-instruct:free",
-        "google/gemini-2.0-flash-exp:free",
-        "mistralai/pixtral-12b:free"
-    ]
-    
-    # 2. ดึงโมเดลฟรีอื่นๆ มาสำรองเพิ่มเติม (ยกเว้น nvidia ที่มักจะ Timeout)
+    # 1. ดึงรายชื่อโมเดลฟรีทั้งหมดที่เปิดใช้งานจริงบน OpenRouter ณ วินาทีนั้น
+    candidate_models = []
     try:
         res_models = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
         if res_models.status_code == 200:
-            all_models = res_models.json().get("data", [])
-            for m in all_models:
+            data = res_models.json().get("data", [])
+            for m in data:
                 m_id = m.get("id", "")
-                if m_id.endswith(":free") and any(k in m_id.lower() for k in ["gemini", "qwen", "pixtral"]):
-                    if m_id not in preferred_models and "nvidia" not in m_id.lower():
-                        preferred_models.append(m_id)
+                if m_id.endswith(":free") and any(k in m_id.lower() for k in ["gemini", "qwen", "vision", "vl", "pixtral"]):
+                    candidate_models.append(m_id)
     except Exception:
         pass
 
-    last_error = ""
-    for model_name in preferred_models:
+    # หากดึงไม่สำเร็จ ให้ใส่รายการสำรอง
+    if not candidate_models:
+        candidate_models = [
+            "qwen/qwen-2.5-vl-72b-instruct:free",
+            "google/gemini-2.0-flash-lite-001:free",
+            "google/gemini-2.0-flash-001:free"
+        ]
+
+    # 2. วนลูปทดสอบส่งรูปไปวิเคราะห์
+    for model_name in candidate_models:
         payload = {
             "model": model_name,
             "messages": [
@@ -94,25 +94,21 @@ def analyze_image_with_openrouter(api_key, image):
         }
         
         try:
-            # จำกัดเวลาประมวลผลไว้ที่ 12 วินาที หากโมเดลไหนค้างจะข้ามไปตัวถัดไปทันที
-            response = requests.post(url, headers=headers, json=payload, timeout=12)
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
             res_data = response.json()
             
-            if response.status_code == 200 and "choices" in res_data and len(res_data["choices"]) > 0:
+            # หากโมเดลนั้นล่ม/ไม่มี endpoint ให้ข้ามไปลองตัวถัดไปทันที
+            if response.status_code != 200 or "error" in res_data:
+                continue
+                
+            if "choices" in res_data and len(res_data["choices"]) > 0:
                 text = res_data["choices"][0]["message"]["content"]
                 if text:
                     return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-            else:
-                error_msg = res_data.get("error", {}).get("message", "Unknown error")
-                last_error = f"[{model_name}] {error_msg}"
-        except requests.exceptions.Timeout:
-            last_error = f"[{model_name}] การเชื่อมต่อหมดเวลา (Timeout)"
+        except Exception:
             continue
-        except Exception as e:
-            last_error = f"[{model_name}] {e}"
-            continue
-            
-    return False, last_error
+
+    return False, "เซิร์ฟเวอร์สแกนภาพฟรีบน OpenRouter ไม่พร้อมใช้งานชั่วคราว (สามารถใช้ปุ่มทางลัด หรือพิมพ์ชื่อวัตถุดิบแทนได้ครับ)"
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
