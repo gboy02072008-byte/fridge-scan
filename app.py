@@ -52,12 +52,12 @@ def analyze_image_with_openrouter(api_key, image):
         "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
     )
     
-    # รายชื่อโมเดลฟรีที่อ่านรูปภาพได้บน OpenRouter
+    # รายชื่อโมเดลฟรีที่รองรับรูปภาพ (Vision) บน OpenRouter ปัจจุบัน
     models_to_try = [
-        "google/gemini-2.0-flash-exp:free",
+        "qwen/qwen-2.5-vl-72b-instruct:free",
         "google/gemini-2.0-flash-lite-preview-02-05:free",
-        "qwen/qwen-2-vl-72b-instruct:free",
-        "meta-llama/llama-3.2-11b-vision-instruct:free"
+        "mistralai/pixtral-12b:free",
+        "google/gemini-2.0-flash-exp:free"
     ]
     
     last_error = ""
@@ -84,9 +84,10 @@ def analyze_image_with_openrouter(api_key, image):
             response = requests.post(url, headers=headers, json=payload, timeout=20)
             res_data = response.json()
             
-            if response.status_code == 200 and "choices" in res_data:
+            if response.status_code == 200 and "choices" in res_data and len(res_data["choices"]) > 0:
                 text = res_data["choices"][0]["message"]["content"]
-                return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+                if text:
+                    return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
             else:
                 error_msg = res_data.get("error", {}).get("message", "Unknown error")
                 last_error = f"[{model_name}] {error_msg}"
