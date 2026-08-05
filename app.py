@@ -1,5 +1,5 @@
 import streamlit as st
-from groq import Groq
+from openai import OpenAI
 from PIL import Image
 from supabase import create_client, Client
 import datetime
@@ -7,7 +7,7 @@ import time
 import base64
 import io
 
-# --- 1. ตั้งค่า API Key & DB Connection ---
+# --- 1. ตั้งค่า DB Connection ---
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -23,15 +23,15 @@ if "scanned_name" not in st.session_state:
     st.session_state.scanned_name = ""
 
 # --- Helper Functions ---
-def compress_and_encode_image(image, max_size=(600, 600)):
-    """ย่อขนาดรูปภาพและแปลงเป็น Base64 สำหรับส่งให้ Groq Vision API"""
+def compress_and_encode_image(image, max_size=(800, 800)):
+    """ย่อขนาดรูปภาพให้พอดีสำหรับ AI วิเคราะห์ความละเอียดสูง"""
     img = image.copy()
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
     img.thumbnail(max_size)
     
     buffered = io.BytesIO()
-    img.save(buffered, format="JPEG", quality=85)
+    img.save(buffered, format="JPEG", quality=90)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
@@ -76,9 +76,9 @@ def delete_item(item_id):
     supabase.table("fridge_items").delete().eq("id", item_id).execute()
 
 # --- 4. หน้าตาแอปพลิเคชัน (UI Flow) ---
-st.set_page_config(page_title="FridgeScan (Groq AI)", page_icon="🍎", layout="centered")
+st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
 
-st.title("🍎 แอปตู้เย็น FridgeScan (Groq AI)")
+st.title("🍎 แอปตู้เย็น FridgeScan")
 
 # ถ้ายังไม่ได้ล็อกอิน -> แสดงหน้า Login / Register
 if st.session_state.user is None:
@@ -108,7 +108,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Groq Vision AI**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **OpenRouter Multi-Vision AI**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -137,9 +137,9 @@ else:
                             st.rerun()
                     st.divider()
 
-    # TAB 2: สแกนวัตถุดิบด้วย Groq AI
+    # TAB 2: สแกนวัตถุดิบด้วย Vision AI
     with tab2:
-        st.subheader("สแกนวัตถุดิบด้วย Groq Vision AI")
+        st.subheader("สแกนวัตถุดิบด้วย Vision AI")
         
         # ทางลัดเลือกวัตถุดิบบ่อย
         st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
@@ -161,52 +161,71 @@ else:
             image = Image.open(img_file)
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
-            if st.button("⚡ ให้ Groq AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 Groq AI กำลังประมวลผลอย่างรวดเร็ว...", expanded=True) as status:
-                    try:
-                        # อ่าน GROQ_API_KEY จาก Secrets
-                        groq_key = st.secrets.get("GROQ_API_KEY")
-                        if not groq_key:
-                            status.update(label="❌ ไม่พบ GROQ_API_KEY ใน Secrets", state="error", expanded=True)
-                            st.error("กรุณาเพิ่ม GROQ_API_KEY ใน Streamlit Secrets ก่อนใช้งานครับ")
-                        else:
-                            client = Groq(api_key=groq_key)
-                            
-                            # แปลงรูปเป็น Base64
-                            base64_image = compress_and_encode_image(image)
-                            
-                            # เรียกใช้ Groq Llama 3.2 Vision Model (รุ่นใช้งานจริง)
-                            response = client.chat.completions.create(
-                                model="llama-3.2-11b-vision-instruct",
-                                messages=[
-                                    {
-                                        "role": "user",
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": "วิเคราะห์ภาพนี้ ระบุชื่ออาหารหรือวัตถุดิบเป็นภาษาไทยสั้นๆ เพียงชื่อเดียว เช่น นมสด, ไข่ไก่, หมูสับ, แอปเปิ้ล"
-                                            },
-                                            {
-                                                "type": "image_url",
-                                                "image_url": {
-                                                    "url": f"data:image/jpeg;base64,{base64_image}"
+            if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
+                with st.status("🚀 AI กำลังวิเคราะห์วัตถุดิบอย่างละเอียดยิบ...", expanded=True) as status:
+                    openrouter_key = st.secrets.get("OPENROUTER_API_KEY")
+                    if not openrouter_key:
+                        status.update(label="❌ ไม่พบ OPENROUTER_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม OPENROUTER_API_KEY ใน Streamlit Secrets ก่อนใช้งานครับ")
+                    else:
+                        client = OpenAI(
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=openrouter_key
+                        )
+                        
+                        base64_image = compress_and_encode_image(image)
+                        
+                        # รายชื่อโมเดลฟรีชั้นนำสำหรับวิเคราะห์ภาพ (เรียงตามลำดับความแม่นยำ)
+                        vision_models = [
+                            "google/gemini-2.0-flash-lite-001:free",
+                            "qwen/qwen-2-vl-72b-instruct:free",
+                            "meta-llama/llama-3.2-11b-vision-instruct:free"
+                        ]
+                        
+                        prompt_text = (
+                            "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
+                            "ให้ระบุเฉพาะชื่อวัตถุดิบอย่างสั้น สรุปตรงประเด็นที่สุดเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, สเต๊กเนื้อ, ผักกาดขาว, แอปเปิ้ล "
+                            "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
+                        )
+                        
+                        success = False
+                        for model_id in vision_models:
+                            try:
+                                status.write(f"🔄 กำลังประมวลผลด้วยโมเดล: `{model_id.split('/')[1]}`")
+                                response = client.chat.completions.create(
+                                    model=model_id,
+                                    messages=[
+                                        {
+                                            "role": "user",
+                                            "content": [
+                                                {"type": "text", "text": prompt_text},
+                                                {
+                                                    "type": "image_url",
+                                                    "image_url": {
+                                                        "url": f"data:image/jpeg;base64,{base64_image}"
+                                                    }
                                                 }
-                                            }
-                                        ]
-                                    }
-                                ],
-                                temperature=0.2,
-                                max_tokens=100
-                            )
-                            
-                            result_text = response.choices[0].message.content.strip()
-                            st.session_state.scanned_name = result_text
-                            status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
-                            
-                    except Exception as e:
-                        status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
-                        st.error(f"ข้อผิดพลาด: {e}")
-                        st.toast("คุณสามารถพิมพ์ชื่อวัตถุดิบลงในแบบฟอร์มด้านล่างได้เลยครับ", icon="💡")
+                                            ]
+                                        }
+                                    ],
+                                    temperature=0.1,
+                                    max_tokens=60
+                                )
+                                
+                                result_text = response.choices[0].message.content.strip()
+                                # ทำความสะอาดข้อความตัดสัญลักษณ์ส่วนเกิน
+                                result_text = result_text.replace('"', '').replace("'", "").replace('.', '')
+                                st.session_state.scanned_name = result_text
+                                status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
+                                success = True
+                                break
+                            except Exception as model_err:
+                                st.write(f"⚠️ โมเดล {model_id} ขัดข้อง กำลังสลับไปใช้โมเดลสำรอง...")
+                                continue
+                        
+                        if not success:
+                            status.update(label="❌ ไม่สามารถประมวลผลได้ชั่วคราว", state="error", expanded=True)
+                            st.error("ระบบประมวลผลภาพไม่สำเร็จ กรุณากรอกชื่อวัตถุดิบด้วยตัวเองด้านล่างครับ")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
