@@ -3,7 +3,9 @@ import streamlit as st
 # --- 0. ตั้งค่า Page Config (ต้องอยู่บนสุด) ---
 st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
 
-import google.generativeai as genai
+import requests
+import base64
+import io
 from PIL import Image
 from supabase import create_client, Client
 import datetime
@@ -23,6 +25,68 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "scanned_name" not in st.session_state:
     st.session_state.scanned_name = ""
+
+# --- Helper Functions ---
+def compress_and_encode_image(image, max_size=(800, 800)):
+    img = image.copy()
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    img.thumbnail(max_size)
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG", quality=85)
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+def analyze_image_with_gemini(api_key, image):
+    """เรียกใช้ Gemini API ผ่าน REST API โดยตรงเพื่อเลี่ยงปัญหา SDK"""
+    base64_image = compress_and_encode_image(image)
+    
+    # รายชื่อโมเดลที่จะทดลองเรียกตามลำดับ
+    models_to_try = [
+        "gemini-1.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-pro"
+    ]
+    
+    prompt = (
+        "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
+        "ระบุเฉพาะชื่อวัตถุดิบอย่างสั้น สรุปตรงประเด็นที่สุดเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, สเต๊กเนื้อ, ผักกาดขาว, แอปเปิ้ล "
+        "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
+    )
+    
+    last_error = ""
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": base64_image
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        response = requests.post(url, headers=headers, json=payload)
+        res_data = response.json()
+        
+        if response.status_code == 200:
+            try:
+                text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+            except Exception:
+                pass
+        else:
+            error_msg = res_data.get("error", {}).get("message", "Unknown error")
+            last_error = f"[{model_name}] {error_msg}"
+            
+    return False, last_error
 
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
@@ -96,7 +160,7 @@ else:
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini AI**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini Direct REST API**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
@@ -156,43 +220,13 @@ else:
                         status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
                         st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        try:
-                            genai.configure(api_key=gemini_key)
-                            
-                            # รายชื่อโมเดลมาตรฐานที่รองรับในปัจจุบัน
-                            candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash"]
-                            prompt = (
-                                "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
-                                "ระบุเฉพาะชื่อวัตถุดิบอย่างสั้น สรุปตรงประเด็นที่สุดเพียงชื่อเดียว เช่น นมสด, ไข่ไก่, สเต๊กเนื้อ, ผักกาดขาว, แอปเปิ้ล "
-                                "ห้ามตอบเป็นประโยคยาว และไม่ต้องมีคำเกริ่นใดๆ"
-                            )
-                            
-                            success = False
-                            last_error = ""
-                            for model_name in candidate_models:
-                                try:
-                                    model = genai.GenerativeModel(model_name)
-                                    response = model.generate_content([prompt, image])
-                                    result_text = response.text.strip().replace('"', '').replace("'", "").replace('.', '')
-                                    
-                                    st.session_state.scanned_name = result_text
-                                    status.update(label=f"✅ สแกนสำเร็จ: {result_text}", state="complete", expanded=False)
-                                    success = True
-                                    break
-                                except Exception as err:
-                                    last_error = str(err)
-                                    continue
-                            
-                            if not success:
-                                status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
-                                if "429" in last_error or "quota" in last_error.lower():
-                                    st.error("❌ โควตา API Key นี้หมด หรือยังไม่ได้เปิดใช้อย่างถูกต้อง กรุณาสร้าง API Key ใหม่ใน Google AI Studio")
-                                else:
-                                    st.error(f"ข้อผิดพลาด: {last_error}")
-
-                        except Exception as e:
-                            status.update(label="⚠️ เกิดข้อผิดพลาดในระบบ", state="error", expanded=True)
-                            st.error(f"ข้อผิดพลาด: {e}")
+                        success, result = analyze_image_with_gemini(gemini_key, image)
+                        if success:
+                            st.session_state.scanned_name = result
+                            status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
+                        else:
+                            status.update(label="⚠️ เกิดข้อผิดพลาดในการสแกน", state="error", expanded=True)
+                            st.error(f"รายละเอียดข้อผิดพลาดจาก Google: {result}")
 
         st.divider()
         st.markdown("### 📝 ตรวจทานและบันทึกลงตู้เย็น")
