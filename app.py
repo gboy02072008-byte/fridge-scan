@@ -42,8 +42,7 @@ def analyze_image_with_gemini(api_key, image):
     
     # รายชื่อโมเดลที่จะทดลองเรียกตามลำดับ
     models_to_try = [
-        "gemini-3.5-flash",
-        "gemini-2.5-flash"
+        "gemini-3.5-flash"
     ]
     
     prompt = (
