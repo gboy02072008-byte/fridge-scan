@@ -206,7 +206,9 @@ else:
             
             if st.button("⚡ ให้ Gemini AI สแกนรูปภาพ", use_container_width=True):
                 with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    gemini_key = st.secrets.get("GEMINI_API_KEY")
+                    # เดิม: gemini_key = st.secrets.get("GEMINI_API_KEY")
+# เปลี่ยนเป็น:
+gemini_key = st.secrets.get("GEMINI_KEY_V2")
                     if not gemini_key:
                         status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
                         st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
