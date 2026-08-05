@@ -36,22 +36,15 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_github(api_key, image):
-    """ใช้ GitHub Models (GPT-4o-mini) สแกนภาพฟรี พร้อมระบบตรวจสอบ Token"""
+def analyze_image_with_gemini(api_key, image):
+    """สแกนภาพด้วย Gemini 1.5 Flash เสถียร ฟรี และไม่ติด Quota 0"""
     base64_image = compress_and_encode_image(image)
     
-    # ทำความสะอาดรหัส Token ป้องกันเครื่องหมายคำพูดหรือเว้นวรรคส่วนเกิน
     clean_key = api_key.strip().strip('"').strip("'")
     
-    # ตรวจสอบรูปแบบคีย์เบื้องต้น
-    if not clean_key.startswith("ghp_"):
-        return False, f"[Token Error] GITHUB_TOKEN ใน Secrets ต้องขึ้นต้นด้วย 'ghp_' เท่านั้น (ปัจจุบัน: {clean_key[:8]}...)"
-
-    url = "https://models.inference.ai.azure.com/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {clean_key}",
-        "Content-Type": "application/json"
-    }
+    # ใช้รุ่น 1.5 Flash ที่มี Quota ฟรีให้ทุกบัญชี Gmail
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
+    headers = {"Content-Type": "application/json"}
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -60,16 +53,14 @@ def analyze_image_with_github(api_key, image):
     )
     
     payload = {
-        "model": "gpt-4o-mini",
-        "messages": [
+        "contents": [
             {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+                "parts": [
+                    {"text": prompt},
                     {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64_image
                         }
                     }
                 ]
@@ -77,20 +68,24 @@ def analyze_image_with_github(api_key, image):
         ]
     }
     
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-        
-        if response.status_code == 200:
+    last_error = ""
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
             res_data = response.json()
-            if "choices" in res_data and len(res_data["choices"]) > 0:
-                text = res_data["choices"][0]["message"]["content"]
-                return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-        
-        # หากเกิดข้อผิดพลาด ให้ดึงข้อความตอบกลับจาก GitHub ออกมาแสดง
-        return False, f"[HTTP {response.status_code}] {response.text[:200]}"
             
-    except Exception as e:
-        return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
+            if response.status_code == 200 and "candidates" in res_data and len(res_data["candidates"]) > 0:
+                text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                if text:
+                    return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+            else:
+                error_msg = res_data.get("error", {}).get("message", response.text[:150])
+                last_error = f"[{model_name}] {error_msg}"
+        except Exception as e:
+            last_error = f"[{model_name}] {e}"
+            
+    return False, last_error
 # --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
