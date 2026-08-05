@@ -1,6 +1,6 @@
 import streamlit as st
 
-# --- 0. ตั้งค่า Page Config ---
+# --- 0. ตั้งค่า Page Config (ต้องอยู่บนสุด) ---
 st.set_page_config(page_title="FridgeScan AI", page_icon="🍎", layout="centered")
 
 import requests
@@ -20,6 +20,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
+# จัดเก็บ Session State
 if "user" not in st.session_state:
     st.session_state.user = None
 if "scanned_name" not in st.session_state:
@@ -35,16 +36,13 @@ def compress_and_encode_image(image, max_size=(800, 800)):
     img.save(buffered, format="JPEG", quality=85)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def analyze_image_with_openai(api_key, image):
-    """สแกนภาพด้วย OpenAI gpt-4o-mini"""
+def analyze_image_with_gemini(api_key, image):
+    """สแกนภาพด้วย Gemini 1.5 Flash ฟรี และเสถียรที่สุด"""
     base64_image = compress_and_encode_image(image)
     clean_key = api_key.strip().strip('"').strip("'")
     
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {clean_key}",
-        "Content-Type": "application/json"
-    }
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
+    headers = {"Content-Type": "application/json"}
     
     prompt = (
         "วิเคราะห์ภาพนี้ แล้วระบุชื่อวัตถุดิบ อาหาร หรือเครื่องดื่มหลักในภาพเป็นภาษาไทย "
@@ -53,16 +51,14 @@ def analyze_image_with_openai(api_key, image):
     )
     
     payload = {
-        "model": "gpt-4o-mini",
-        "messages": [
+        "contents": [
             {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+                "parts": [
+                    {"text": prompt},
                     {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64_image
                         }
                     }
                 ]
@@ -70,20 +66,26 @@ def analyze_image_with_openai(api_key, image):
         ]
     }
     
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-        res_data = response.json()
-        
-        if response.status_code == 200 and "choices" in res_data:
-            text = res_data["choices"][0]["message"]["content"]
-            return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
-        else:
-            error_msg = res_data.get("error", {}).get("message", response.text[:150])
-            return False, f"[OpenAI Error] {error_msg}"
-    except Exception as e:
-        return False, f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {e}"
+    last_error = ""
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
+            res_data = response.json()
+            
+            if response.status_code == 200 and "candidates" in res_data and len(res_data["candidates"]) > 0:
+                text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                if text:
+                    return True, text.strip().replace('"', '').replace("'", "").replace('.', '')
+            else:
+                error_msg = res_data.get("error", {}).get("message", response.text[:150])
+                last_error = f"[{model_name}] {error_msg}"
+        except Exception as e:
+            last_error = f"[{model_name}] {e}"
+            
+    return False, last_error
 
-# --- 2. ระบบสมาชิก ---
+# --- 2. ฟังก์ชันระบบสมาชิก (Auth) ---
 def login(email, password):
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -106,7 +108,7 @@ def logout():
     st.session_state.scanned_name = ""
     st.rerun()
 
-# --- 3. จัดการตู้เย็น ---
+# --- 3. ฟังก์ชันจัดการตู้เย็น (Database) ---
 def get_fridge_items(user_id):
     res = supabase.table("fridge_items").select("*").eq("user_id", user_id).order("expiry_date", desc=False).execute()
     return res.data
@@ -124,9 +126,10 @@ def add_item_to_fridge(name, category, quantity, expiry_date, user_id):
 def delete_item(item_id):
     supabase.table("fridge_items").delete().eq("id", item_id).execute()
 
-# --- 4. UI ---
+# --- 4. หน้าตาแอปพลิเคชัน (UI Flow) ---
 st.title("🍎 แอปตู้เย็น FridgeScan")
 
+# ถ้ายังไม่ได้ล็อกอิน -> แสดงหน้า Login / Register
 if st.session_state.user is None:
     auth_tab1, auth_tab2 = st.tabs(["🔑 เข้าสู่ระบบ", "📝 สมัครสมาชิก"])
     
@@ -148,17 +151,19 @@ if st.session_state.user is None:
             else:
                 st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
 
+# ถ้าล็อกอินแล้ว -> แสดงหน้าแอปตู้เย็นหลัก
 else:
     user_id = st.session_state.user.id
     user_email = st.session_state.user.email
     
     st.sidebar.write(f"👤 ผู้ใช้งาน: **{user_email}**")
-    st.sidebar.caption("⚡ พลังประมวลผล: **OpenAI (gpt-4o-mini)**")
+    st.sidebar.caption("⚡ พลังประมวลผล: **Google Gemini 1.5 Flash**")
     if st.sidebar.button("ออกจากระบบ"):
         logout()
 
     tab1, tab2 = st.tabs(["📦 ตู้เย็นของฉัน", "➕ เพิ่มของเข้าตู้เย็น"])
 
+    # TAB 1: รายการอาหารในตู้เย็น
     with tab1:
         st.subheader("รายการของในตู้เย็น")
         items = get_fridge_items(user_id)
@@ -181,9 +186,11 @@ else:
                             st.rerun()
                     st.divider()
 
+    # TAB 2: สแกนวัตถุดิบด้วย AI
     with tab2:
         st.subheader("สแกนวัตถุดิบด้วย AI")
         
+        # ทางลัดเลือกวัตถุดิบบ่อย
         st.caption("⚡ ทางลัดด่วน (ไม่ต้องสแกน):")
         shortcut_cols = st.columns(4)
         if shortcut_cols[0].button("🥛 นมสด", use_container_width=True):
@@ -204,14 +211,14 @@ else:
             st.image(image, caption="รูปถ่ายวัตถุดิบ", width=300)
             
             if st.button("⚡ ให้ AI สแกนรูปภาพ", use_container_width=True):
-                with st.status("🚀 OpenAI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
-                    openai_key = st.secrets.get("OPENAI_API_KEY")
+                with st.status("🚀 Gemini AI กำลังวิเคราะห์วัตถุดิบ...", expanded=True) as status:
+                    gemini_key = st.secrets.get("GEMINI_API_KEY")
                     
-                    if not openai_key:
-                        status.update(label="❌ ไม่พบ OPENAI_API_KEY ใน Secrets", state="error", expanded=True)
-                        st.error("กรุณาเพิ่ม OPENAI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
+                    if not gemini_key:
+                        status.update(label="❌ ไม่พบ GEMINI_API_KEY ใน Secrets", state="error", expanded=True)
+                        st.error("กรุณาเพิ่ม GEMINI_API_KEY ใน Streamlit Secrets ก่อนใช้งาน")
                     else:
-                        success, result = analyze_image_with_openai(openai_key, image)
+                        success, result = analyze_image_with_gemini(gemini_key, image)
                         if success:
                             st.session_state.scanned_name = result
                             status.update(label=f"✅ สแกนสำเร็จ: {result}", state="complete", expanded=False)
