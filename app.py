@@ -126,7 +126,7 @@ else:
             st.image(image, caption="รูปถ่าย", use_container_width=True)
             
             if st.button("🤖 ให้ AI สแกนบันทึกเข้าตู้เย็น"):
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.0-flash')
                 prompt = "วิเคราะห์ภาพนี้ ระบุชื่ออาหาร/วัตถุดิบสั้นๆ ภาษาไทยเพียงชื่อเดียว เช่น นมสด, ไข่ไก่"
                 
                 with st.spinner("กำลังบันทึกลงตู้เย็นของคุณ..."):
